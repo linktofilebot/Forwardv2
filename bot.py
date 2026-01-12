@@ -21,11 +21,11 @@ from pyrogram import Client, filters
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # ==================[ এখানে আপনার তথ্যগুলো বসান ]==================
-API_ID = 1234567               # আপনার API ID (my.telegram.org থেকে)
-API_HASH = "your_hash"         # আপনার API HASH (my.telegram.org থেকে)
-BOT_TOKEN = "your_token"       # আপনার বোট টোকেন (@BotFather থেকে)
-ADMIN_ID = 123456789           # আপনার নিজের টেলিগ্রাম আইডি (অ্যাডমিন)
-MONGO_URL = "mongodb+srv://..." # আপনার MongoDB ইউআরএল (Atlas থেকে)
+API_ID = 29904834               # আপনার API ID (my.telegram.org থেকে)
+API_HASH = "8b4fd9ef578af114502feeafa2d31938"         # আপনার API HASH (my.telegram.org থেকে)
+BOT_TOKEN = "8061645932:AAH1ZldPHnxDADXKXjpUFJOrDsEXEYA5I8M"       # আপনার বোট টোকেন (@BotFather থেকে)
+ADMIN_ID = 7525127704           # আপনার নিজের টেলিগ্রাম আইডি (অ্যাডমিন)
+MONGO_URL = "mongodb+srv://tmlbdmovies:tmlbd198j@cluster0.op4v2d8.mongodb.net/?appName=Cluster0" # আপনার MongoDB ইউআরএল (Atlas থেকে)
 # =============================================================
 
 # লগিং সেটিংস
