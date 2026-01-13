@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import re
 
 # --- অটোমেটিক লাইব্রেরি ইনস্টল ---
 def install_requirements():
@@ -11,7 +12,6 @@ def install_requirements():
         except ImportError:
             subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
 
-# Render-এ ডেপ্লয় করার সময় অনেক সময় অটো-ইনস্টল প্রয়োজন হয়
 install_requirements()
 
 from flask import Flask, render_template_string, request, session, redirect, url_for
@@ -23,26 +23,36 @@ from wtforms import form, fields
 # --- ১. কনফিগারেশন ---
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'MY_SUPER_SECRET_KEY_123')
-
-# Flask-Admin ২.০ ভার্সনের জন্য টেমপ্লেট মোড এখানে সেট করতে হবে
 app.config['FLASK_ADMIN_TEMPLATE_MODE'] = 'bootstrap3'
 
-# এডমিন লগইন ডিটেইলস
 ADMIN_USER = "admin"
 ADMIN_PASS = "admin123"
 
-# MongoDB কানেকশন
 MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://tmlbdmovies:tmlbd198j@cluster0.op4v2d8.mongodb.net/?appName=Cluster0")
 client = MongoClient(MONGO_URI)
 db = client['shorts_app_db'] 
 videos_col = db['videos']
 
-# --- ২. এডমিন প্যানেল লজিক ---
+# --- ২. সাহায্যকারী ফাংশন (URL Parser) ---
+def get_video_type(url):
+    """লিঙ্কটি কি সরাসরি ভিডিও ফাইল নাকি ইউটিউব তা চেক করবে"""
+    if any(ext in url.lower() for ext in ['.mp4', '.webm', '.ogg', '.mov']):
+        return 'direct'
+    elif 'youtube.com' in url or 'youtu.be' in url:
+        return 'youtube'
+    else:
+        return 'iframe'  # অন্য যে কোন লিঙ্কের জন্য (যেমন ফেসবুক/টিকটক যা আইফ্রেম সাপোর্ট করে)
 
-# PyMongo এর জন্য ম্যানুয়াল ফর্ম তৈরি
+def get_youtube_id(url):
+    """ইউটিউব ভিডিও বা শর্টস আইডি এক্সট্রাক্ট করে"""
+    pattern = r'(?:v=|\/shorts\/|be\/|embed\/)([a-zA-Z0-9_-]{11})'
+    match = re.search(pattern, url)
+    return match.group(1) if match else None
+
+# --- ৩. এডমিন প্যানেল লজিক ---
 class VideoForm(form.Form):
     title = fields.StringField('Video Title')
-    url = fields.StringField('Direct MP4 Link (URL)')
+    url = fields.StringField('Video Link (YouTube/Direct MP4/Other)')
     description = fields.TextAreaField('Description')
 
 class MyAdminIndexView(AdminIndexView):
@@ -53,40 +63,33 @@ class MyAdminIndexView(AdminIndexView):
         return super(MyAdminIndexView, self).index()
 
 class VideoAdminView(ModelView):
-    # ফর্ম সেট করা
     form = VideoForm
-    
-    # লিস্ট ভিউতে যা দেখাবে
     column_list = ('title', 'url', 'description')
-
     def is_accessible(self):
         return session.get('logged_in')
-
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login'))
 
-# এডমিন প্যানেল সেটআপ (এখান থেকে template_mode সরানো হয়েছে ইরর ঠিক করতে)
 admin = Admin(app, name='Shorts Admin', index_view=MyAdminIndexView())
 admin.add_view(VideoAdminView(videos_col, name='Manage Videos'))
 
-# --- ৩. HTML টেমপ্লেটসমূহ ---
-
+# --- ৪. HTML টেমপ্লেটসমূহ ---
 INDEX_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shorts Clone</title>
+    <title>Multi-Source Shorts</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body, html { height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
         .container { height: 100vh; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; }
         .container::-webkit-scrollbar { display: none; }
-        .video-card { height: 100vh; width: 100%; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; }
-        video { height: 100%; width: 100%; object-fit: cover; }
-        .overlay { position: absolute; bottom: 40px; left: 20px; color: white; text-shadow: 2px 2px 5px #000; z-index: 10; }
-        .admin-link { position: fixed; top: 15px; right: 15px; background: rgba(255,255,255,0.2); color: white; padding: 5px 15px; border-radius: 20px; text-decoration: none; z-index: 100; font-size: 12px; border: 1px solid #fff; }
+        .video-card { height: 100vh; width: 100%; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; background: #000; }
+        video, iframe { height: 100%; width: 100%; border: none; }
+        .overlay { position: absolute; bottom: 40px; left: 20px; color: white; text-shadow: 2px 2px 5px #000; z-index: 10; pointer-events: none; }
+        .admin-link { position: fixed; top: 15px; right: 15px; background: rgba(0,0,0,0.5); color: white; padding: 5px 15px; border-radius: 20px; text-decoration: none; z-index: 100; font-size: 12px; border: 1px solid #fff; }
     </style>
 </head>
 <body>
@@ -95,7 +98,17 @@ INDEX_HTML = """
         {% if videos %}
             {% for video in videos %}
             <div class="video-card">
-                <video src="{{ video.url }}" loop playsinline onclick="this.paused?this.play():this.pause()"></video>
+                {% set vtype = get_type(video.url) %}
+                
+                {% if vtype == 'direct' %}
+                    <video src="{{ video.url }}" loop playsinline onclick="this.paused?this.play():this.pause()"></video>
+                {% elif vtype == 'youtube' %}
+                    {% set yt_id = get_yt_id(video.url) %}
+                    <iframe src="https://www.youtube.com/embed/{{ yt_id }}?autoplay=0&controls=0&loop=1&playlist={{ yt_id }}" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                {% else %}
+                    <iframe src="{{ video.url }}" allow="autoplay"></iframe>
+                {% endif %}
+
                 <div class="overlay">
                     <h3>@{{ video.title }}</h3>
                     <p>{{ video.description }}</p>
@@ -106,12 +119,17 @@ INDEX_HTML = """
             <div style="color: white; text-align: center; margin-top: 50vh;">No videos found. Go to Admin Panel to add some.</div>
         {% endif %}
     </div>
+
     <script>
+        // অটো-প্লে লজিক শুধুমাত্র সরাসরি ভিডিওর জন্য (ইউটিউব আইফ্রেম ব্রাউজার সিকিউরিটির কারণে অটো-প্লে ব্লক করতে পারে)
         const videos = document.querySelectorAll('video');
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
-                if (entry.isIntersecting) entry.target.play();
-                else entry.target.pause();
+                if (entry.isIntersecting) {
+                    if(entry.target.tagName === 'VIDEO') entry.target.play();
+                } else {
+                    if(entry.target.tagName === 'VIDEO') entry.target.pause();
+                }
             });
         }, { threshold: 0.6 });
         videos.forEach(v => observer.observe(v));
@@ -148,13 +166,17 @@ LOGIN_HTML = """
 </html>
 """
 
-# --- ৪. রাউটস (Routes) ---
+# --- ৫. রাউটস (Routes) ---
 
 @app.route('/')
 def index():
-    # MongoDB থেকে সব ভিডিও নিয়ে আসা
     videos = list(videos_col.find())
-    return render_template_string(INDEX_HTML, videos=videos)
+    return render_template_string(
+        INDEX_HTML, 
+        videos=videos, 
+        get_type=get_video_type, 
+        get_yt_id=get_youtube_id
+    )
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -172,6 +194,5 @@ def logout():
     return redirect(url_for('index'))
 
 if __name__ == "__main__":
-    # Render-এর জন্য পোর্ট সেটআপ
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
