@@ -1,5 +1,6 @@
-pyrogram
-tgcrypto
+flask
 pymongo
 dnspython
-flask
+flask-admin
+wtforms
+gunicorn
