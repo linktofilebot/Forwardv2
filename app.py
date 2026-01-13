@@ -11,7 +11,7 @@ import cloudinary.utils
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
-# MongoDB কানেকশন (আপনার দেওয়া URL)
+# MongoDB কানেকশন
 MONGO_URI = "mongodb+srv://Demo270:Demo270@cluster0.ls1igsg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0" 
 ADMIN_PASS = "admin786"
 
@@ -40,12 +40,22 @@ HTML_TEMPLATE = """
         .feed-container { height: 100vh; scroll-snap-type: y mandatory; overflow-y: scroll; scrollbar-width: none; }
         .video-card { height: 100vh; scroll-snap-align: start; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
-        video { height: 100%; width: 100%; object-fit: cover; }
-        .glass-ui { background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(25px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        video { height: 100%; width: 100%; object-fit: cover; cursor: pointer; }
+        .glass-ui { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); }
         .active-api { border: 2px solid #06b6d4 !important; background: rgba(6, 182, 212, 0.15); }
         .btn-grad { background: linear-gradient(45deg, #06b6d4, #3b82f6); transition: 0.3s; }
         .btn-grad:active { transform: scale(0.95); }
         .comment-item { background: rgba(255,255,255,0.05); padding: 8px; border-radius: 8px; margin-bottom: 5px; font-size: 12px; }
+        
+        /* Progress Bar Styling */
+        .video-progress-container { position: absolute; bottom: 0; left: 0; width: 100%; height: 4px; background: rgba(255,255,255,0.2); cursor: pointer; z-index: 60; }
+        .video-progress-bar { height: 100%; background: #06b6d4; width: 0%; transition: width 0.1s linear; }
+        
+        /* Skip Buttons Overlay */
+        .skip-btn { position: absolute; top: 50%; transform: translateY(-50%); padding: 20px; background: rgba(0,0,0,0.3); border-radius: 50%; opacity: 0; transition: 0.3s; z-index: 40; pointer-events: none; }
+        .video-card:hover .skip-btn { opacity: 0.5; pointer-events: auto; }
+        .skip-left { left: 20px; }
+        .skip-right { right: 20px; }
     </style>
 </head>
 <body>
@@ -61,7 +71,7 @@ HTML_TEMPLATE = """
 
     <!-- Login Modal -->
     <div id="loginModal" class="hidden fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-6">
-        <div class="glass-ui p-8 rounded-3xl w-full max-w-sm text-center">
+        <div class="glass-ui p-8 rounded-3xl w-full max-sm:max-w-xs text-center">
             <h2 class="text-2xl font-black mb-6 text-cyan-400">ADMIN LOGIN</h2>
             <input id="adminPass" type="password" placeholder="Password" class="w-full bg-white/5 p-4 rounded-xl border border-white/10 mb-6 text-center outline-none focus:border-cyan-400">
             <button onclick="tryLogin()" class="w-full btn-grad p-4 rounded-xl font-bold uppercase">Unlock</button>
@@ -96,9 +106,7 @@ HTML_TEMPLATE = """
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                <!-- Column 1 -->
                 <div class="space-y-8">
-                    <!-- API Config -->
                     <div class="glass-ui p-6 rounded-3xl border border-gray-800">
                         <h3 class="text-cyan-400 font-bold mb-4 text-xs uppercase">1. Cloudinary Setup (No Preset)</h3>
                         <div class="grid gap-3 mb-4">
@@ -110,7 +118,6 @@ HTML_TEMPLATE = """
                         <div id="apiList" class="mt-6 space-y-2"></div>
                     </div>
 
-                    <!-- Upload Section -->
                     <div class="glass-ui p-6 rounded-3xl border border-cyan-500/20 shadow-2xl">
                         <h3 class="text-cyan-400 font-bold mb-4 text-xs uppercase">2. Fast Upload Episode</h3>
                         <div class="space-y-4">
@@ -121,7 +128,6 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
 
-                <!-- Column 2 -->
                 <div class="glass-ui p-6 rounded-3xl border border-gray-800">
                     <h3 class="text-gray-500 font-bold mb-4 text-xs uppercase">3. Content Manager</h3>
                     <div id="contentList" class="space-y-4 max-h-[700px] overflow-y-auto scrollbar-hide pr-2"></div>
@@ -146,27 +152,100 @@ HTML_TEMPLATE = """
                 feed.innerHTML = `<div class="h-screen flex items-center justify-center opacity-30 uppercase text-xs">No Content</div>`;
                 return;
             }
-            feed.innerHTML = appState.videos.map(v => `
-                <div class="video-card">
-                    <video src="${v.url}" loop autoplay muted playsinline onclick="this.paused?this.play():this.pause()"></video>
+            feed.innerHTML = appState.videos.map((v, index) => `
+                <div class="video-card" id="card-${v.id}">
+                    <video id="vid-${v.id}" src="${v.url}" loop autoplay playsinline 
+                        onclick="togglePlay('vid-${v.id}')"
+                        ontimeupdate="updateProgress('${v.id}')"></video>
                     
-                    <div class="absolute right-5 bottom-32 flex flex-col gap-6 text-center z-10">
+                    <!-- Skip Buttons -->
+                    <button class="skip-btn skip-left" onclick="skipTime('vid-${v.id}', -5)">⏪</button>
+                    <button class="skip-btn skip-right" onclick="skipTime('vid-${v.id}', 5)">⏩</button>
+
+                    <!-- Sidebar Actions -->
+                    <div class="absolute right-5 bottom-32 flex flex-col gap-5 text-center z-50">
                         <div onclick="handleInteraction('${v.id}', 'like')" class="cursor-pointer">
-                            <div class="glass-ui p-4 rounded-full">❤️</div>
-                            <span class="text-xs font-bold">${v.likes || 0}</span>
+                            <div class="glass-ui p-3 rounded-full text-xl">❤️</div>
+                            <span class="text-[10px] font-bold">${v.likes || 0}</span>
                         </div>
                         <div onclick="openComments('${v.id}')" class="cursor-pointer">
-                            <div class="glass-ui p-4 rounded-full">💬</div>
-                            <span class="text-xs font-bold">${(v.comments || []).length}</span>
+                            <div class="glass-ui p-3 rounded-full text-xl">💬</div>
+                            <span class="text-[10px] font-bold">${(v.comments || []).length}</span>
+                        </div>
+                        <div onclick="shareVideo('${v.series}', '${v.url}')" class="cursor-pointer">
+                            <div class="glass-ui p-3 rounded-full text-xl">🔗</div>
+                            <span class="text-[10px] font-bold">SHARE</span>
+                        </div>
+                        <div onclick="downloadVideo('${v.url}')" class="cursor-pointer">
+                            <div class="glass-ui p-3 rounded-full text-xl">⬇️</div>
+                            <span class="text-[10px] font-bold">SAVE</span>
+                        </div>
+                        <div onclick="toggleMute('vid-${v.id}')" class="cursor-pointer">
+                            <div id="mute-icon-vid-${v.id}" class="glass-ui p-3 rounded-full text-xl">🔊</div>
                         </div>
                     </div>
 
-                    <div class="absolute bottom-12 left-6 right-20 z-10">
-                        <h3 class="text-cyan-400 font-black text-4xl italic uppercase">${v.series}</h3>
-                        <p class="text-white font-bold text-xl opacity-90">Episode: ${v.episode}</p>
+                    <!-- Info -->
+                    <div class="absolute bottom-12 left-6 right-20 z-10 pointer-events-none">
+                        <h3 class="text-cyan-400 font-black text-3xl italic uppercase leading-none">${v.series}</h3>
+                        <p class="text-white font-bold text-lg opacity-90 mt-1">Episode: ${v.episode}</p>
+                    </div>
+
+                    <!-- YouTube Style Seeker -->
+                    <div class="video-progress-container" onclick="seekVideo(event, 'vid-${v.id}')">
+                        <div id="progress-${v.id}" class="video-progress-bar"></div>
                     </div>
                 </div>
             `).join('');
+        }
+
+        // --- Video Control Functions ---
+        function togglePlay(id) {
+            const v = document.getElementById(id);
+            v.paused ? v.play() : v.pause();
+        }
+
+        function toggleMute(id) {
+            const v = document.getElementById(id);
+            const btn = document.getElementById('mute-icon-' + id);
+            v.muted = !v.muted;
+            btn.innerText = v.muted ? "🔇" : "🔊";
+        }
+
+        function skipTime(id, sec) {
+            const v = document.getElementById(id);
+            v.currentTime += sec;
+        }
+
+        function updateProgress(id) {
+            const v = document.getElementById('vid-' + id);
+            const bar = document.getElementById('progress-' + id);
+            const percent = (v.currentTime / v.duration) * 100;
+            bar.style.width = percent + '%';
+        }
+
+        function seekVideo(e, id) {
+            const v = document.getElementById(id);
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pos = (e.pageX - rect.left) / rect.width;
+            v.currentTime = pos * v.duration;
+        }
+
+        function shareVideo(title, url) {
+            if (navigator.share) {
+                navigator.share({ title: title, url: url });
+            } else {
+                alert("Link Copied: " + url);
+            }
+        }
+
+        function downloadVideo(url) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'CloudTok_Video.mp4';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         }
 
         function renderAdmin() {
@@ -187,7 +266,7 @@ HTML_TEMPLATE = """
             `).join('');
         }
 
-        // --- SIGNED UPLOAD (NO PRESET) ---
+        // --- SIGNED UPLOAD ---
         function initUpload() {
             const title = document.getElementById('movieTitle').value;
             const ep = document.getElementById('epNo').value;
@@ -220,7 +299,6 @@ HTML_TEMPLATE = """
             }).open();
         }
 
-        // --- Interactions ---
         async function handleInteraction(id, type, commentText = "") {
             await fetch('/api/interaction', {
                 method: 'POST',
@@ -246,7 +324,6 @@ HTML_TEMPLATE = """
             };
         }
 
-        // --- Admin Actions ---
         async function saveApi() {
             const cloud = document.getElementById('c_name').value;
             const key = document.getElementById('c_key').value;
@@ -308,14 +385,10 @@ def home():
 
 @app.route('/api/sign', methods=['POST'])
 def sign_api():
-    """ প্রিসেট ছাড়াই সাইনড আপলোড করার ডিজিটাল স্বাক্ষর তৈরি """
     if not session.get('admin_session'): return jsonify({"error": "Unauthorized"}), 401
-    
     active_api = api_col.find_one({"is_active": True})
     if not active_api: return jsonify({"error": "No Active API"}), 400
-
     params = request.json.get('params', {})
-    # Cloudinary অফিসিয়াল সিগনেচার মেথড
     signature = cloudinary.utils.api_sign_request(params, active_api['secret'])
     return jsonify({"signature": signature})
 
