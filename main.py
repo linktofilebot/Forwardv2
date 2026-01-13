@@ -11,6 +11,7 @@ def install_requirements():
         except ImportError:
             subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
 
+# Render-এ ডেপ্লয় করার সময় অনেক সময় অটো-ইনস্টল প্রয়োজন হয়
 install_requirements()
 
 from flask import Flask, render_template_string, request, session, redirect, url_for
@@ -21,21 +22,25 @@ from wtforms import form, fields
 
 # --- ১. কনফিগারেশন ---
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'MY_SUPER_SECRET_KEY_123'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'MY_SUPER_SECRET_KEY_123')
 
 # এডমিন লগইন ডিটেইলস
 ADMIN_USER = "admin"
 ADMIN_PASS = "admin123"
 
-# MongoDB কানেকশন ফিক্স
-# Render Environment Variable থেকে নিবে, না থাকলে লোকাল কানেকশন
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+# MongoDB কানেকশন
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://tmlbdmovies:tmlbd198j@cluster0.op4v2d8.mongodb.net/?appName=Cluster0")
 client = MongoClient(MONGO_URI)
-# ডাটাবেসের নাম সরাসরি উল্লেখ করে দেওয়া হলো যাতে 'No default database' এরর না আসে
 db = client['shorts_app_db'] 
 videos_col = db['videos']
 
-# --- ২. এডমিন প্যানেল লজিক (লগইন সহ) ---
+# --- ২. এডমিন প্যানেল লজিক ---
+
+# PyMongo এর জন্য ম্যানুয়াল ফর্ম তৈরি (এটিই আপনার এরর সমাধান করবে)
+class VideoForm(form.Form):
+    title = fields.StringField('Video Title')
+    url = fields.StringField('Direct MP4 Link (URL)')
+    description = fields.TextAreaField('Description')
 
 class MyAdminIndexView(AdminIndexView):
     @expose('/')
@@ -45,22 +50,20 @@ class MyAdminIndexView(AdminIndexView):
         return super(MyAdminIndexView, self).index()
 
 class VideoAdminView(ModelView):
+    # ফর্ম সেট করা
+    form = VideoForm
+    
+    # লিস্ট ভিউতে যা দেখাবে
+    column_list = ('title', 'url', 'description')
+
     def is_accessible(self):
         return session.get('logged_in')
 
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login'))
 
-    column_list = ('title', 'url')
-    # ভিডিও যোগ করার ফরম
-    form_extra_fields = {
-        'title': fields.StringField('Video Title'),
-        'url': fields.StringField('Direct MP4 Link'),
-        'description': fields.TextAreaField('Description')
-    }
-
-# এডমিন প্যানেল সেটআপ (template_mode এরর ফিক্স করা হয়েছে)
-admin = Admin(app, name='Shorts Admin', index_view=MyAdminIndexView())
+# এডমিন প্যানেল সেটআপ
+admin = Admin(app, name='Shorts Admin', index_view=MyAdminIndexView(), template_mode='bootstrap3')
 admin.add_view(VideoAdminView(videos_col, name='Manage Videos'))
 
 # --- ৩. HTML টেমপ্লেটসমূহ ---
@@ -79,22 +82,26 @@ INDEX_HTML = """
         .container::-webkit-scrollbar { display: none; }
         .video-card { height: 100vh; width: 100%; scroll-snap-align: start; position: relative; display: flex; justify-content: center; align-items: center; }
         video { height: 100%; width: 100%; object-fit: cover; }
-        .overlay { position: absolute; bottom: 40px; left: 20px; color: white; text-shadow: 2px 2px 5px #000; }
+        .overlay { position: absolute; bottom: 40px; left: 20px; color: white; text-shadow: 2px 2px 5px #000; z-index: 10; }
         .admin-link { position: fixed; top: 15px; right: 15px; background: rgba(255,255,255,0.2); color: white; padding: 5px 15px; border-radius: 20px; text-decoration: none; z-index: 100; font-size: 12px; border: 1px solid #fff; }
     </style>
 </head>
 <body>
     <a href="/admin" class="admin-link">Admin Panel</a>
     <div class="container">
-        {% for video in videos %}
-        <div class="video-card">
-            <video src="{{ video.url }}" loop muted playsinline onclick="this.paused?this.play():this.pause()"></video>
-            <div class="overlay">
-                <h3>@{{ video.title }}</h3>
-                <p>{{ video.description }}</p>
+        {% if videos %}
+            {% for video in videos %}
+            <div class="video-card">
+                <video src="{{ video.url }}" loop playsinline onclick="this.paused?this.play():this.pause()"></video>
+                <div class="overlay">
+                    <h3>@{{ video.title }}</h3>
+                    <p>{{ video.description }}</p>
+                </div>
             </div>
-        </div>
-        {% endfor %}
+            {% endfor %}
+        {% else %}
+            <div style="color: white; text-align: center; margin-top: 50vh;">No videos found. Go to Admin Panel to add some.</div>
+        {% endif %}
     </div>
     <script>
         const videos = document.querySelectorAll('video');
@@ -116,10 +123,11 @@ LOGIN_HTML = """
 <head>
     <title>Admin Login</title>
     <style>
-        body { background: #111; color: #fff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        .box { background: #222; padding: 30px; border-radius: 10px; text-align: center; border: 1px solid #444; }
-        input { display: block; width: 100%; margin: 10px 0; padding: 10px; border-radius: 5px; border: none; }
-        button { width: 100%; padding: 10px; background: #e50914; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        body { background: #111; color: #fff; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin:0; }
+        .box { background: #222; padding: 30px; border-radius: 10px; text-align: center; border: 1px solid #444; width: 300px; }
+        input { display: block; width: 100%; margin: 10px 0; padding: 10px; border-radius: 5px; border: none; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #e50914; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        a { color: #888; text-decoration: none; font-size: 12px; display: block; margin-top: 15px; }
     </style>
 </head>
 <body>
@@ -131,6 +139,7 @@ LOGIN_HTML = """
             <button type="submit">Login</button>
         </form>
         {% if err %}<p style="color:red; margin-top:10px;">{{ err }}</p>{% endif %}
+        <a href="/">← Back to Videos</a>
     </div>
 </body>
 </html>
@@ -140,6 +149,7 @@ LOGIN_HTML = """
 
 @app.route('/')
 def index():
+    # MongoDB থেকে সব ভিডিও নিয়ে আসা
     videos = list(videos_col.find())
     return render_template_string(INDEX_HTML, videos=videos)
 
@@ -159,5 +169,6 @@ def logout():
     return redirect(url_for('index'))
 
 if __name__ == "__main__":
+    # Render-এর জন্য পোর্ট সেটআপ
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
