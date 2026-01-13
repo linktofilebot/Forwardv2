@@ -9,7 +9,7 @@ app.secret_key = secrets.token_hex(16)
 
 # ================= MongoDB Configuration =================
 # আপনার MongoDB Atlas থেকে পাওয়া Connection URL এখানে দিন
-MONGO_URI = "mongodb+srv://USER:PASS@cluster.mongodb.net/dbname" 
+MONGO_URI = "mongodb+srv://Demo270:Demo270@cluster0.ls1igsg.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0" 
 
 try:
     client = MongoClient(MONGO_URI)
