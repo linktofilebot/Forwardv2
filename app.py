@@ -20,9 +20,14 @@ try:
     db = client['CloudTok_Final_Stable']
     api_col = db['apis']
     video_col = db['videos']
+    user_col = db['users'] # ইউজার কালেকশন যোগ করা হয়েছে
     print("✓ MongoDB Connected Successfully")
 except Exception as e:
     print(f"✗ MongoDB Connection Error: {e}")
+
+# পাসওয়ার্ড হ্যাশিং ফাংশন
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
 # ================= 2. ফ্রন্টএন্ড ডিজাইন (HTML/JS) =================
 HTML_TEMPLATE = """
@@ -62,7 +67,7 @@ HTML_TEMPLATE = """
         .video-progress-bar { height: 100%; background: #06b6d4; width: 0%; border-radius: 10px; transition: width 0.1s linear; position: relative; }
         .time-info { position: absolute; top: -20px; right: 0; font-size: 10px; color: #06b6d4; font-weight: bold; }
         
-        .bottom-nav { position: fixed; bottom: 0; width: 100%; max-width: 500px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); display: flex; justify-content: space-around; padding: 15px; z-index: 70; }
+        .bottom-nav { position: fixed; bottom: 0; width: 100%; max-width: 500px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.85); display: flex; justify-content: space-around; padding: 15px; z-index: 70; border-top: 1px solid rgba(255,255,255,0.1); }
         
         .skip-area { position: absolute; top: 0; height: 100%; width: 30%; z-index: 40; }
         .skip-left { left: 0; }
@@ -70,24 +75,19 @@ HTML_TEMPLATE = """
         
         .explore-grid { display: grid; grid-template-cols: repeat(2, 1fr); gap: 10px; padding: 20px; padding-top: 80px; padding-bottom: 100px; }
 
-        /* Like Heart Animation */
         .heart-animation {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 80px;
-            color: #ff2d55;
-            pointer-events: none;
-            animation: heartFade 0.8s ease-out forwards;
-            z-index: 100;
-            text-shadow: 0 0 20px rgba(0,0,0,0.5);
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 80px; color: #ff2d55; pointer-events: none;
+            animation: heartFade 0.8s ease-out forwards; z-index: 100; text-shadow: 0 0 20px rgba(0,0,0,0.5);
         }
         @keyframes heartFade {
             0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
             50% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
             100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
         }
+
+        /* Profile Nav Image Style */
+        .nav-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; border: 1px solid #06b6d4; }
     </style>
 </head>
 <body>
@@ -101,15 +101,60 @@ HTML_TEMPLATE = """
     <div class="bottom-nav">
         <button onclick="loadHome()" class="flex flex-col items-center">
             <span class="text-2xl">🏠</span>
-            <span class="text-[10px] font-bold">HOME</span>
+            <span class="text-[9px] font-bold">HOME</span>
         </button>
         <button onclick="loadExplore()" class="flex flex-col items-center">
             <span class="text-2xl">🔍</span>
-            <span class="text-[10px] font-bold">EXPLORE</span>
+            <span class="text-[9px] font-bold">EXPLORE</span>
+        </button>
+        <button onclick="handleProfileClick()" class="flex flex-col items-center">
+            <div id="navProfileIcon">
+                <span class="text-2xl">👤</span>
+            </div>
+            <span class="text-[9px] font-bold">PROFILE</span>
         </button>
     </div>
 
-    <!-- Login Modal -->
+    <!-- User Login Modal -->
+    <div id="userLoginModal" class="hidden fixed inset-0 z-[110] bg-black/95 flex items-center justify-center p-6">
+        <div class="glass-ui p-8 rounded-3xl w-full max-sm:max-w-xs text-center">
+            <h2 class="text-2xl font-black mb-6 text-cyan-400">LOGIN</h2>
+            <input id="uPhone" type="text" placeholder="Number" class="w-full bg-white/5 p-4 rounded-xl border border-white/10 mb-4 outline-none">
+            <input id="uPass" type="password" placeholder="Password" class="w-full bg-white/5 p-4 rounded-xl border border-white/10 mb-6 outline-none">
+            <button onclick="tryUserLogin()" class="w-full btn-grad p-4 rounded-xl font-bold uppercase">Login</button>
+            <p class="mt-4 text-xs">No account? <span class="text-cyan-400 cursor-pointer" onclick="openRegister()">Register</span></p>
+            <button onclick="closeModal('userLoginModal')" class="mt-4 text-gray-500 text-xs">Close</button>
+        </div>
+    </div>
+
+    <!-- User Register Modal -->
+    <div id="userRegModal" class="hidden fixed inset-0 z-[110] bg-black/95 flex items-center justify-center p-6">
+        <div class="glass-ui p-8 rounded-3xl w-full max-sm:max-w-xs text-center">
+            <h2 class="text-2xl font-black mb-6 text-cyan-400">REGISTER</h2>
+            <input id="regName" type="text" placeholder="Full Name" class="w-full bg-white/5 p-4 rounded-xl border border-white/10 mb-4 outline-none">
+            <input id="regPhone" type="text" placeholder="Number" class="w-full bg-white/5 p-4 rounded-xl border border-white/10 mb-4 outline-none">
+            <input id="regPass" type="password" placeholder="Password" class="w-full bg-white/5 p-4 rounded-xl border border-white/10 mb-6 outline-none">
+            <button onclick="tryUserRegister()" class="w-full btn-grad p-4 rounded-xl font-bold uppercase">Join Now</button>
+            <p class="mt-4 text-xs">Have account? <span class="text-cyan-400 cursor-pointer" onclick="openLogin()">Login</span></p>
+            <button onclick="closeModal('userRegModal')" class="mt-4 text-gray-500 text-xs">Close</button>
+        </div>
+    </div>
+
+    <!-- User Profile Modal -->
+    <div id="profileModal" class="hidden fixed inset-0 z-[110] bg-black/95 flex items-center justify-center p-6">
+        <div class="glass-ui p-8 rounded-3xl w-full max-sm:max-w-xs text-center">
+            <img id="profImg" src="" class="w-24 h-24 rounded-full mx-auto border-4 border-cyan-400 object-cover mb-4">
+            <h2 id="profName" class="text-xl font-black text-white mb-2"></h2>
+            <p id="profPhone" class="text-gray-400 text-sm mb-6"></p>
+            
+            <input id="newAvatar" placeholder="Profile Image URL" class="w-full bg-white/5 p-3 rounded-xl border border-white/10 mb-4 text-xs">
+            <button onclick="updateAvatar()" class="w-full bg-cyan-600 p-3 rounded-xl font-bold text-xs uppercase mb-3">Update Image</button>
+            <button onclick="doUserLogout()" class="w-full bg-red-600 p-3 rounded-xl font-bold text-xs uppercase">Logout</button>
+            <button onclick="closeModal('profileModal')" class="mt-4 text-gray-500 text-xs">Close</button>
+        </div>
+    </div>
+
+    <!-- Admin Login Modal -->
     <div id="loginModal" class="hidden fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-6">
         <div class="glass-ui p-8 rounded-3xl w-full max-sm:max-w-xs text-center">
             <h2 class="text-2xl font-black mb-6 text-cyan-400">ADMIN LOGIN</h2>
@@ -183,21 +228,104 @@ HTML_TEMPLATE = """
     </div>
 
     <script>
-        let appState = { apis: [], videos: [], active_id: null };
+        let appState = { apis: [], videos: [], active_id: null, user: null };
         let currentMode = 'home'; 
         let filteredVideos = [];
         let observer;
 
-        // চেক করা যদি ইউজার /admin লিংকে থাকে
         window.addEventListener('load', function() {
+            checkUserStatus(); // ইউজারের অবস্থা চেক করা
             if(window.location.pathname.includes('/admin')) {
                 openAuth();
             }
         });
 
+        async function checkUserStatus() {
+            const res = await fetch('/api/user/status');
+            const data = await res.json();
+            appState.user = data.user;
+            updateNavProfile();
+        }
+
+        function updateNavProfile() {
+            const iconContainer = document.getElementById('navProfileIcon');
+            if (appState.user) {
+                const avatar = appState.user.profile_img || `https://ui-avatars.com/api/?name=${appState.user.name}&background=random&color=fff`;
+                iconContainer.innerHTML = `<img src="${avatar}" class="nav-avatar">`;
+            } else {
+                iconContainer.innerHTML = `<span class="text-2xl">👤</span>`;
+            }
+        }
+
+        function handleProfileClick() {
+            if (appState.user) {
+                document.getElementById('profName').innerText = appState.user.name;
+                document.getElementById('profPhone').innerText = appState.user.phone;
+                document.getElementById('profImg').src = appState.user.profile_img || `https://ui-avatars.com/api/?name=${appState.user.name}&background=random&color=fff`;
+                document.getElementById('profileModal').classList.remove('hidden');
+            } else {
+                openLogin();
+            }
+        }
+
+        async function tryUserRegister() {
+            const name = document.getElementById('regName').value;
+            const phone = document.getElementById('regPhone').value;
+            const pass = document.getElementById('regPass').value;
+            if(!name || !phone || !pass) return alert("Fill all fields");
+
+            const res = await fetch('/api/user/register', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name, phone, pass })
+            });
+            const data = await res.json();
+            if(data.success) { alert("Registration Success! Login Now."); openLogin(); }
+            else alert(data.error);
+        }
+
+        async function tryUserLogin() {
+            const phone = document.getElementById('uPhone').value;
+            const pass = document.getElementById('uPass').value;
+            const res = await fetch('/api/user/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ phone, pass })
+            });
+            const data = await res.json();
+            if(data.success) { location.reload(); }
+            else alert("Invalid Login!");
+        }
+
+        async function updateAvatar() {
+            const url = document.getElementById('newAvatar').value;
+            if(!url) return;
+            const res = await fetch('/api/user/update_img', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url })
+            });
+            if((await res.json()).success) { alert("Profile Updated!"); location.reload(); }
+        }
+
+        async function doUserLogout() {
+            await fetch('/api/user/logout');
+            location.reload();
+        }
+
+        function openLogin() {
+            closeModal('userRegModal');
+            document.getElementById('userLoginModal').classList.remove('hidden');
+        }
+
+        function openRegister() {
+            closeModal('userLoginModal');
+            document.getElementById('userRegModal').classList.remove('hidden');
+        }
+
         async function refreshData() {
             const res = await fetch('/api/data');
-            appState = await res.json();
+            appState = {...appState, ...await res.json()};
 
             const urlParams = new URLSearchParams(window.location.search);
             const vId = urlParams.get('v');
@@ -310,7 +438,6 @@ HTML_TEMPLATE = """
             initObserver();
         }
 
-        // ডাবল ট্যাপ লাইক এনিমেশন এবং লজিক
         function handleDoubleTap(e, id) {
             handleInteraction(id, 'like');
             const heart = document.createElement('div');
@@ -532,10 +659,56 @@ HTML_TEMPLATE = """
 def home():
     return render_template_string(HTML_TEMPLATE)
 
-# এই রাউটটি ঠিক করা হয়েছে (strict_slashes=False দিলে /admin এবং /admin/ উভয়ই কাজ করবে)
 @app.route('/admin', strict_slashes=False)
 def admin_page():
     return render_template_string(HTML_TEMPLATE)
+
+# --- ইউজার ম্যানেজমেন্ট সিস্টেম ---
+
+@app.route('/api/user/register', methods=['POST'])
+def user_register():
+    data = request.json
+    if user_col.find_one({"phone": data['phone']}):
+        return jsonify({"success": False, "error": "Phone number already exists!"})
+    
+    user_col.insert_one({
+        "id": str(uuid.uuid4())[:8],
+        "name": data['name'],
+        "phone": data['phone'],
+        "password": hash_password(data['pass']),
+        "profile_img": "",
+        "created_at": datetime.now()
+    })
+    return jsonify({"success": True})
+
+@app.route('/api/user/login', methods=['POST'])
+def user_login():
+    data = request.json
+    u = user_col.find_one({"phone": data['phone'], "password": hash_password(data['pass'])})
+    if u:
+        session['user_id'] = u['id']
+        return jsonify({"success": True})
+    return jsonify({"success": False})
+
+@app.route('/api/user/status')
+def user_status():
+    uid = session.get('user_id')
+    u = user_col.find_one({"id": uid}, {"_id": 0, "password": 0}) if uid else None
+    return jsonify({"user": u})
+
+@app.route('/api/user/logout')
+def user_logout():
+    session.pop('user_id', None)
+    return jsonify({"success": True})
+
+@app.route('/api/user/update_img', methods=['POST'])
+def update_img():
+    uid = session.get('user_id')
+    if not uid: return jsonify({"success": False}), 401
+    user_col.update_one({"id": uid}, {"$set": {"profile_img": request.json['url']}})
+    return jsonify({"success": True})
+
+# --- ভিডিও ও এডমিন এপিআই ---
 
 @app.route('/api/sign', methods=['POST'])
 def sign_api():
