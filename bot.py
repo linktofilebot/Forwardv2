@@ -4,10 +4,12 @@ import subprocess
 import asyncio
 import logging
 import re
+from threading import Thread
+from flask import Flask
 
 # ==================[ অটো লাইব্রেরি ইনস্টল সিস্টেম ]==================
 def install_requirements():
-    requirements = ["pyrogram", "tgcrypto", "motor", "dnspython"]
+    requirements = ["pyrogram", "tgcrypto", "motor", "dnspython", "flask"]
     for package in requirements:
         try:
             __import__(package if package != "dnspython" else "dns")
@@ -21,12 +23,24 @@ from pyrogram import Client, filters
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # ==================[ এখানে আপনার তথ্যগুলো বসান ]==================
-API_ID = 29904834               # আপনার API ID (my.telegram.org থেকে)
-API_HASH = "8b4fd9ef578af114502feeafa2d31938"         # আপনার API HASH (my.telegram.org থেকে)
-BOT_TOKEN = "8061645932:AAH1ZldPHnxDADXKXjpUFJOrDsEXEYA5I8M"       # আপনার বোট টোকেন (@BotFather থেকে)
-ADMIN_ID = 7525127704           # আপনার নিজের টেলিগ্রাম আইডি (অ্যাডমিন)
-MONGO_URL = "mongodb+srv://tmlbdmovies:tmlbd198j@cluster0.op4v2d8.mongodb.net/?appName=Cluster0" # আপনার MongoDB ইউআরএল (Atlas থেকে)
+API_ID = 29904834               
+API_HASH = "8b4fd9ef578af114502feeafa2d31938"         
+BOT_TOKEN = "8061645932:AAH1ZldPHnxDADXKXjpUFJOrDsEXEYA5I8M"       
+ADMIN_ID = 7525127704           
+MONGO_URL = "mongodb+srv://tmlbdmovies:tmlbd198j@cluster0.op4v2d8.mongodb.net/?appName=Cluster0" 
 # =============================================================
+
+# Flask App তৈরি (Render-এর পোর্টের জন্য)
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def home():
+    return "Bot is alive and running!"
+
+def run_web_server():
+    # Render অটোমেটিক $PORT এনভায়রনমেন্ট ভেরিয়েবল দেয়
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host='0.0.0.0', port=port)
 
 # লগিং সেটিংস
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -62,10 +76,9 @@ async def start(client, message):
         "🚀 **বট এখন সচল!**\n\n"
         "**সেটআপ গাইড:**\n"
         "1️⃣ `/add_source -100xxx` : ফাইল রাখার চ্যানেল আইডি\n"
-        "2️⃣ `/add_dest -100xxx` : মেইন চ্যানেল আইডি (যেখানে পোস্ট যাবে)\n"
+        "2️⃣ `/add_dest -100xxx` : মেইন চ্যানেল আইডি\n"
         "3️⃣ `/limit 5` : প্রতি ঘণ্টায় ৫টি ফাইল যাবে\n"
-        "4️⃣ `/status` : কিউ এবং সিরিয়াল চেক করুন\n\n"
-        "📌 *ফাইল আপলোড করার সময় ক্যাপশনের শুরুতে ১, ২, ৩ এভাবে নাম্বার দিন।*")
+        "4️⃣ `/status` : কিউ চেক করুন")
 
 @app.on_message(filters.command("add_source") & filters.user(ADMIN_ID))
 async def add_src(client, message):
@@ -111,46 +124,51 @@ async def collector(client, message):
                 upsert=True
             )
             logger.info(f"সিরিয়াল {serial} সেভ করা হয়েছে।")
-            # যদি আগে কোনো সিরিয়াল সেট না থাকে, তবে এটিই প্রথম সিরিয়াল হবে
             if s.get("next_serial") is None:
                 await settings_col.update_one({"_id": "settings"}, {"$set": {"next_serial": serial}})
 
 # --- অটো ফরওয়ার্ডার ওয়ার্কার ---
 async def worker():
     while True:
-        s = await get_config()
-        ptr = s.get("next_serial")
-        
-        # যদি পরবর্তী কোনো সিরিয়াল সেট না থাকে, ডাটাবেসের সর্বনিম্নটি নিবে
-        if ptr is None:
-            first = await queue_col.find_one({}, sort=[("serial", 1)])
-            if first:
-                ptr = first["serial"]
-                await settings_col.update_one({"_id": "settings"}, {"$set": {"next_serial": ptr}})
-
-        # সিরিয়াল অনুযায়ী ফাইল আছে কি না চেক
-        task = await queue_col.find_one({"serial": ptr})
-        
-        if task and s["destinations"]:
-            delay = 3600 / s["limit"]
-            for d in s["destinations"]:
-                try:
-                    # copy_message বাটন এবং ক্যাপশন হুবহু কপি করে
-                    await app.copy_message(chat_id=d, from_chat_id=task["from_id"], message_id=task["msg_id"])
-                except Exception as e:
-                    logger.error(f"Error: {e}")
+        try:
+            s = await get_config()
+            ptr = s.get("next_serial")
             
-            # পাঠানো শেষ হলে কিউ থেকে ডিলিট এবং পরের সিরিয়াল সেট
-            await queue_col.delete_one({"_id": task["_id"]})
-            await settings_col.update_one({"_id": "settings"}, {"$set": {"next_serial": ptr + 1}})
-            logger.info(f"Serial {ptr} Sent. Waiting {delay}s...")
-            await asyncio.sleep(delay)
-        else:
-            await asyncio.sleep(15) # সিরিয়াল না পাওয়া গেলে অপেক্ষা
+            if ptr is None:
+                first = await queue_col.find_one({}, sort=[("serial", 1)])
+                if first:
+                    ptr = first["serial"]
+                    await settings_col.update_one({"_id": "settings"}, {"$set": {"next_serial": ptr}})
+
+            task = await queue_col.find_one({"serial": ptr})
+            
+            if task and s["destinations"]:
+                delay = 3600 / s["limit"]
+                for d in s["destinations"]:
+                    try:
+                        await app.copy_message(chat_id=d, from_chat_id=task["from_id"], message_id=task["msg_id"])
+                    except Exception as e:
+                        logger.error(f"Forwarding Error: {e}")
+                
+                await queue_col.delete_one({"_id": task["_id"]})
+                await settings_col.update_one({"_id": "settings"}, {"$set": {"next_serial": ptr + 1}})
+                logger.info(f"Serial {ptr} Sent. Waiting {delay}s...")
+                await asyncio.sleep(delay)
+            else:
+                await asyncio.sleep(15) 
+        except Exception as e:
+            logger.error(f"Worker Error: {e}")
+            await asyncio.sleep(10)
 
 # --- রান বোট ---
 if __name__ == "__main__":
+    # ১. প্রথমে ওয়েব সার্ভারটি থ্রেডে রান করান
+    server_thread = Thread(target=run_web_server)
+    server_thread.daemon = True
+    server_thread.start()
+    
+    # ২. এরপর বট রান করান
     loop = asyncio.get_event_loop()
     loop.create_task(worker())
-    print(">>> বট চালু হয়েছে! টেলিগ্রামে কমান্ড দিন।")
+    print(">>> বট এবং ওয়েব সার্ভার চালু হয়েছে!")
     app.run()
