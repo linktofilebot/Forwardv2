@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudTok - Episode & API Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://upload-widget.cloudinary.com/global/all.js"></script>
+    <style>
+        body { background-color: #000; color: #fff; font-family: 'Segoe UI', sans-serif; }
+        .video-feed { height: 100vh; scroll-snap-type: y mandatory; overflow-y: scroll; scrollbar-width: none; }
+        .video-card { height: 100vh; scroll-snap-align: start; position: relative; background: #000; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        video { height: 100%; width: 100%; object-fit: cover; }
+        .glass { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    </style>
+</head>
+<body>
+
+    <!-- Top Navigation -->
+    <nav class="fixed top-0 w-full z-50 flex justify-between p-5 bg-gradient-to-b from-black/90 to-transparent">
+        <h1 class="text-2xl font-black italic tracking-tighter text-cyan-400">CLOUD<span class="text-white">TOK</span></h1>
+        <button onclick="toggleAdmin()" class="glass px-5 py-2 rounded-full text-xs font-bold uppercase tracking-widest">Admin Panel</button>
+    </nav>
+
+    <!-- UI: Video Feed -->
+    <div id="videoFeed" class="video-feed scrollbar-hide">
+        <!-- Videos will load here -->
+    </div>
+
+    <!-- UI: Admin Panel Modal -->
+    <div id="adminPanel" class="hidden fixed inset-0 z-[60] bg-black/95 p-6 overflow-y-auto">
+        <div class="max-w-2xl mx-auto pb-20">
+            <div class="flex justify-between items-center mb-10 border-b border-gray-800 pb-5">
+                <h2 class="text-3xl font-bold">Admin Dashboard</h2>
+                <button onclick="toggleAdmin()" class="text-red-500 font-black text-xl">✕</button>
+            </div>
+
+            <!-- Multi-API Section -->
+            <div class="glass p-6 rounded-3xl mb-8">
+                <h3 class="text-cyan-400 font-bold mb-4 uppercase text-sm tracking-widest">1. Manage APIs</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <input id="cloudInput" placeholder="Cloud Name" class="bg-white/5 p-3 rounded-xl outline-none border border-white/10 focus:border-cyan-500">
+                    <input id="presetInput" placeholder="Upload Preset" class="bg-white/5 p-3 rounded-xl outline-none border border-white/10 focus:border-cyan-500">
+                </div>
+                <button onclick="addAPI()" class="w-full bg-cyan-600 hover:bg-cyan-500 p-3 rounded-xl font-bold transition">Add API</button>
+                
+                <div id="apiList" class="mt-6 space-y-3 max-h-40 overflow-y-auto pr-2 scrollbar-hide">
+                    <!-- API List Items -->
+                </div>
+            </div>
+
+            <!-- Upload Section with Episode System -->
+            <div class="glass p-6 rounded-3xl">
+                <h3 class="text-cyan-400 font-bold mb-4 uppercase text-sm tracking-widest">2. Upload Episode</h3>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <input id="seriesName" placeholder="Series Name (e.g. Drama)" class="bg-white/5 p-3 rounded-xl outline-none border border-white/10">
+                    <input id="episodeNo" type="number" placeholder="Episode No." class="bg-white/5 p-3 rounded-xl outline-none border border-white/10">
+                </div>
+                
+                <div id="uploadStatus" class="hidden mb-4 p-4 rounded-xl bg-cyan-900/30 border border-cyan-500/50">
+                    <p id="progressText" class="text-center font-bold text-cyan-400 italic">Uploading: 0%</p>
+                    <div class="w-full bg-gray-700 h-2 rounded-full mt-2 overflow-hidden">
+                        <div id="progressBar" class="bg-cyan-500 h-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <button onclick="startUpload()" class="w-full bg-white text-black p-5 rounded-2xl font-black text-xl hover:scale-[1.02] transition active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.2)]">
+                    🚀 START UPLOAD
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Database State
+        let db = {
+            apis: [],
+            videos: [],
+            activeApiId: null
+        };
+
+        // LocalStorage Logic
+        function loadDB() {
+            const data = localStorage.getItem('tok_pro_db');
+            if (data) {
+                db = JSON.parse(data);
+                renderFeed();
+                renderAdmin();
+            }
+        }
+
+        function saveDB() {
+            localStorage.setItem('tok_pro_db', JSON.stringify(db));
+        }
+
+        // API Management
+        function addAPI() {
+            const cloud = document.getElementById('cloudInput').value;
+            const preset = document.getElementById('presetInput').value;
+            if(!cloud || !preset) return alert("Fill API details!");
+
+            const newApi = { id: Date.now(), cloud, preset };
+            db.apis.push(newApi);
+            if(!db.activeApiId) db.activeApiId = newApi.id;
+            
+            saveDB();
+            renderAdmin();
+            document.getElementById('cloudInput').value = '';
+            document.getElementById('presetInput').value = '';
+        }
+
+        function setApi(id) {
+            db.activeApiId = id;
+            saveDB();
+            renderAdmin();
+        }
+
+        // Upload with Episode & Progress System
+        function startUpload() {
+            const activeApi = db.apis.find(a => a.id == db.activeApiId);
+            const series = document.getElementById('seriesName').value;
+            const epNo = document.getElementById('episodeNo').value;
+
+            if(!activeApi) return alert("Add & Select an API first!");
+            if(!series || !epNo) return alert("Enter Series Name & Episode Number!");
+
+            const widget = cloudinary.createUploadWidget({
+                cloudName: activeApi.cloudName,
+                uploadPreset: activeApi.preset,
+                resourceType: 'video',
+                multiple: false
+            }, (error, result) => {
+                const statusDiv = document.getElementById('uploadStatus');
+                const progressText = document.getElementById('progressText');
+                const progressBar = document.getElementById('progressBar');
+
+                if (result.event === "upload-progress") {
+                    statusDiv.classList.remove('hidden');
+                    let progress = Math.round(result.info.progress);
+                    progressText.innerText = `Uploading: ${progress}%`;
+                    progressBar.style.width = `${progress}%`;
+                }
+
+                if (!error && result && result.event === "success") {
+                    const newVid = {
+                        id: Date.now(),
+                        url: result.info.secure_url,
+                        series: series,
+                        episode: epNo,
+                        likes: 0,
+                        comments: [],
+                        shares: 0
+                    };
+                    db.videos.unshift(newVid);
+                    saveDB();
+                    renderFeed();
+                    statusDiv.classList.add('hidden');
+                    alert("Episode Uploaded Successfully!");
+                    toggleAdmin();
+                }
+            });
+
+            widget.open();
+        }
+
+        // Actions
+        function doAction(id, type) {
+            const vid = db.videos.find(v => v.id == id);
+            if(type === 'like') vid.likes++;
+            if(type === 'share') vid.shares++;
+            if(type === 'comment') {
+                const msg = prompt("Write your comment:");
+                if(msg) vid.comments.push(msg);
+            }
+            saveDB();
+            renderFeed();
+        }
+
+        // UI Rendering
+        function renderAdmin() {
+            const list = document.getElementById('apiList');
+            list.innerHTML = db.apis.map(api => `
+                <div onclick="setApi(${api.id})" class="flex items-center justify-between p-4 rounded-xl cursor-pointer transition ${api.id == db.activeApiId ? 'bg-cyan-600/20 border border-cyan-500' : 'bg-white/5 border border-white/10'}">
+                    <div>
+                        <p class="font-bold text-sm">${api.cloudName}</p>
+                        <p class="text-[10px] opacity-50 uppercase tracking-tighter">${api.preset}</p>
+                    </div>
+                    ${api.id == db.activeApiId ? '<span class="text-cyan-400 text-xs font-bold">ACTIVE</span>' : ''}
+                </div>
+            `).join('');
+        }
+
+        function renderFeed() {
+            const feed = document.getElementById('videoFeed');
+            if(db.videos.length === 0) {
+                feed.innerHTML = `<div class="h-full flex flex-col items-center justify-center opacity-30">
+                    <p class="text-5xl mb-4">🎬</p>
+                    <p>No episodes yet. Go to Admin to upload.</p>
+                </div>`;
+                return;
+            }
+
+            feed.innerHTML = db.videos.map(vid => `
+                <div class="video-card">
+                    <video src="${vid.url}" loop autoplay muted playsinline onclick="this.paused?this.play():this.pause()"></video>
+                    
+                    <!-- Sidebar Icons -->
+                    <div class="absolute right-4 bottom-32 flex flex-col gap-6 text-center z-10">
+                        <div onclick="doAction(${vid.id}, 'like')" class="group cursor-pointer">
+                            <div class="glass p-4 rounded-full mb-1 group-active:scale-150 transition">❤️</div>
+                            <span class="text-xs font-bold">${vid.likes}</span>
+                        </div>
+                        <div onclick="doAction(${vid.id}, 'comment')" class="cursor-pointer">
+                            <div class="glass p-4 rounded-full mb-1">💬</div>
+                            <span class="text-xs font-bold">${vid.comments.length}</span>
+                        </div>
+                        <div onclick="doAction(${vid.id}, 'share')" class="cursor-pointer">
+                            <div class="glass p-4 rounded-full mb-1">🔗</div>
+                            <span class="text-xs font-bold">${vid.shares}</span>
+                        </div>
+                    </div>
+
+                    <!-- Episode Info Info -->
+                    <div class="absolute bottom-10 left-5 right-16 z-10">
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="h-10 w-10 bg-gradient-to-tr from-cyan-500 to-blue-500 rounded-full border-2 border-white"></div>
+                            <p class="font-bold text-lg shadow-black drop-shadow-lg">@Admin_Creator</p>
+                        </div>
+                        <h3 class="text-cyan-400 font-black text-xl italic uppercase tracking-tighter">${vid.series}</h3>
+                        <p class="text-white font-medium drop-shadow-md">Episode: ${vid.episode}</p>
+                        <div class="mt-2 flex gap-2">
+                            <span class="text-[10px] glass px-2 py-1 rounded">#viral</span>
+                            <span class="text-[10px] glass px-2 py-1 rounded">#cloudinary</span>
+                            <span class="text-[10px] glass px-2 py-1 rounded">#episode_${vid.episode}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleAdmin() {
+            document.getElementById('adminPanel').classList.toggle('hidden');
+        }
+
+        // Start App
+        loadDB();
+    </script>
+</body>
+</html>
