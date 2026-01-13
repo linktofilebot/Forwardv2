@@ -1,4 +1,4 @@
-from flask import Flask, render_template_string, request, jsonify, session
+from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for
 from pymongo import MongoClient
 import uuid
 import secrets
@@ -38,7 +38,6 @@ HTML_TEMPLATE = """
     <style>
         body { background: #000; color: #fff; font-family: 'Inter', sans-serif; overflow: hidden; margin: 0; }
         
-        /* ডেস্কটপ ও মোবাইলের জন্য অটো মোড */
         .feed-container { 
             height: 100vh; 
             scroll-snap-type: y mandatory; 
@@ -59,28 +58,42 @@ HTML_TEMPLATE = """
         .btn-grad { background: linear-gradient(45deg, #06b6d4, #3b82f6); transition: 0.3s; }
         .btn-grad:active { transform: scale(0.95); }
         
-        /* প্রগ্রেস বার একটু উপরে আনা হয়েছে */
         .video-progress-container { position: absolute; bottom: 90px; left: 5%; width: 90%; height: 6px; background: rgba(255,255,255,0.2); cursor: pointer; z-index: 60; border-radius: 10px; }
         .video-progress-bar { height: 100%; background: #06b6d4; width: 0%; border-radius: 10px; transition: width 0.1s linear; position: relative; }
         .time-info { position: absolute; top: -20px; right: 0; font-size: 10px; color: #06b6d4; font-weight: bold; }
         
-        /* Bottom Nav */
         .bottom-nav { position: fixed; bottom: 0; width: 100%; max-width: 500px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); display: flex; justify-content: space-around; padding: 15px; z-index: 70; }
         
         .skip-area { position: absolute; top: 0; height: 100%; width: 30%; z-index: 40; }
         .skip-left { left: 0; }
         .skip-right { right: 0; }
         
-        /* Explore Grid */
         .explore-grid { display: grid; grid-template-cols: repeat(2, 1fr); gap: 10px; padding: 20px; padding-top: 80px; padding-bottom: 100px; }
+
+        /* Like Heart Animation on Double Click */
+        .heart-animation {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 100px;
+            color: #ff2d55;
+            pointer-events: none;
+            animation: heartFade 0.8s ease-out forwards;
+            z-index: 100;
+        }
+        @keyframes heartFade {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+            50% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+            100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
+        }
     </style>
 </head>
 <body>
 
-    <!-- Header -->
+    <!-- Header (Admin Button Removed as requested) -->
     <nav class="fixed top-0 w-full max-width-[500px] z-50 flex justify-between p-5 bg-gradient-to-b from-black/80 to-transparent">
         <h1 onclick="loadHome()" class="text-2xl font-black italic text-cyan-400 uppercase tracking-tighter cursor-pointer">Cloud<span class="text-white">Tok</span></h1>
-        <button onclick="openAuth()" class="bg-white/10 px-6 py-2 rounded-full text-[10px] font-bold border border-white/20 hover:bg-cyan-500 transition">ADMIN</button>
     </nav>
 
     <!-- Video Feed Container -->
@@ -123,14 +136,14 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <!-- Admin Panel (মেইন কোড অপরিবর্তিত) -->
+    <!-- Admin Panel -->
     <div id="adminPanel" class="hidden fixed inset-0 z-[80] bg-black p-4 md:p-8 overflow-y-auto">
         <div class="max-w-6xl mx-auto pb-20">
             <div class="flex justify-between items-center mb-10 border-b border-gray-800 pb-5">
                 <h2 class="text-3xl font-black text-cyan-500 uppercase">Control Center</h2>
                 <div class="flex gap-4">
                     <button onclick="doLogout()" class="text-red-500 font-bold text-xs uppercase underline">Logout</button>
-                    <button onclick="location.reload()" class="text-white text-3xl">✖</button>
+                    <button onclick="location.href='/'" class="text-white text-3xl">✖</button>
                 </div>
             </div>
 
@@ -177,11 +190,17 @@ HTML_TEMPLATE = """
         let filteredVideos = [];
         let observer;
 
+        // চেক করা যদি ইউজার /admin লিংকে থাকে
+        window.onload = function() {
+            if(window.location.pathname === '/admin') {
+                openAuth();
+            }
+        }
+
         async function refreshData() {
             const res = await fetch('/api/data');
             appState = await res.json();
 
-            // শেয়ার্ড লিংক চেক (ইউটিউব এর মতো কাজ করার জন্য)
             const urlParams = new URLSearchParams(window.location.search);
             const vId = urlParams.get('v');
             if(vId && currentMode === 'home') {
@@ -204,11 +223,9 @@ HTML_TEMPLATE = """
             document.getElementById('videoFeed').scrollTo(0,0);
         }
 
-        // --- EXPLORE অপশন ঠিক করা হয়েছে ---
         function loadExplore() {
             currentMode = 'explore';
             const feed = document.getElementById('videoFeed');
-            // ইউনিক মুভি লিস্ট তৈরি করা
             const seriesList = [...new Map(appState.videos.map(item => [item.series, item])).values()];
             
             feed.innerHTML = `
@@ -245,16 +262,16 @@ HTML_TEMPLATE = """
                     
                     <video id="vid-${v.id}" src="${v.url}" loop playsinline 
                         onclick="togglePlay('vid-${v.id}')"
+                        ondblclick="handleDoubleTap(event, '${v.id}')"
                         ontimeupdate="updateProgress('${v.id}')"></video>
                     
-                    <!-- Sidebar Actions -->
                     <div class="absolute right-5 bottom-32 flex flex-col gap-5 text-center z-50">
                         <div onclick="toggleMute('vid-${v.id}')" class="cursor-pointer">
                             <div class="glass-ui p-3 rounded-full text-xl" id="vol-icon-vid-${v.id}">🔊</div>
                         </div>
                         <div onclick="handleInteraction('${v.id}', 'like')" class="cursor-pointer">
                             <div class="glass-ui p-3 rounded-full text-xl">❤️</div>
-                            <span class="text-[10px] font-bold">${v.likes || 0}</span>
+                            <span class="text-[10px] font-bold" id="like-count-${v.id}">${v.likes || 0}</span>
                         </div>
                         <div onclick="openComments('${v.id}')" class="cursor-pointer">
                             <div class="glass-ui p-3 rounded-full text-xl">💬</div>
@@ -274,7 +291,6 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Info -->
                     <div class="absolute bottom-24 left-6 right-20 z-10 pointer-events-none">
                         <div class="flex items-center gap-3 mb-2">
                             <img src="${v.poster || 'https://via.placeholder.com/150'}" class="w-12 h-12 rounded-lg border border-white/20 object-cover shadow-lg">
@@ -285,7 +301,6 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
 
-                    <!-- Progress Bar with Time -->
                     <div class="video-progress-container" onclick="seekVideo(event, 'vid-${v.id}')">
                         <div id="progress-${v.id}" class="video-progress-bar">
                             <span id="time-${v.id}" class="time-info">00:00</span>
@@ -295,6 +310,18 @@ HTML_TEMPLATE = """
             `).join('');
 
             initObserver();
+        }
+
+        // ডাবল ট্যাপ লাইক লজিক
+        function handleDoubleTap(e, id) {
+            handleInteraction(id, 'like');
+            
+            // এনিমেশন শো করা
+            const heart = document.createElement('div');
+            heart.innerHTML = '❤️';
+            heart.className = 'heart-animation';
+            e.target.parentElement.appendChild(heart);
+            setTimeout(() => heart.remove(), 800);
         }
 
         function initObserver() {
@@ -334,14 +361,12 @@ HTML_TEMPLATE = """
             v.currentTime += sec;
         }
 
-        // শেয়ার লিংক এখন ইউটিউব এর মতো কাজ করবে
         function shareVideo(id) {
             const mainUrl = window.location.origin + "/?v=" + id;
             navigator.clipboard.writeText(mainUrl);
             alert("Main Site Link Copied!");
         }
 
-        // ডাউনলোড সরাসরি করার অপশন
         function downloadVideo(url) {
             const downloadUrl = url.replace("/upload/", "/upload/fl_attachment/");
             const a = document.createElement('a');
@@ -360,7 +385,6 @@ HTML_TEMPLATE = """
                 const percent = (v.currentTime / v.duration) * 100;
                 bar.style.width = percent + '%';
                 
-                // মিনিট ও সেকেন্ড ফরম্যাট
                 let m = Math.floor(v.currentTime / 60);
                 let s = Math.floor(v.currentTime % 60);
                 let durM = Math.floor(v.duration / 60) || 0;
@@ -369,7 +393,6 @@ HTML_TEMPLATE = """
             }
         }
 
-        // --- অরিজিনাল এডমিন লজিক ---
         function renderAdmin() {
             document.getElementById('apiList').innerHTML = appState.apis.map(a => `
                 <div onclick="switchActiveApi('${a.id}')" class="flex justify-between items-center p-3 rounded-xl border cursor-pointer ${a.id === appState.active_id ? 'active-api shadow-lg' : 'border-gray-800'}">
@@ -421,12 +444,16 @@ HTML_TEMPLATE = """
         }
 
         async function handleInteraction(id, type, commentText = "") {
-            await fetch('/api/interaction', {
+            const res = await fetch('/api/interaction', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ id, type, comment: commentText })
             });
-            refreshData();
+            const result = await res.json();
+            if(type === 'like' && document.getElementById('like-count-'+id)) {
+                let count = parseInt(document.getElementById('like-count-'+id).innerText);
+                document.getElementById('like-count-'+id).innerText = count + 1;
+            }
         }
 
         function openComments(id) {
@@ -486,20 +513,28 @@ HTML_TEMPLATE = """
 
         async function doLogout() {
             await fetch('/api/logout');
-            location.reload();
+            location.href = '/';
         }
 
-        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        function closeModal(id) { 
+            document.getElementById(id).classList.add('hidden'); 
+            if(id === 'loginModal' && window.location.pathname === '/admin') window.location.href = '/';
+        }
         refreshData();
     </script>
 </body>
 </html>
 """
 
-# ================= 3. ব্যাকএন্ড এপিআই লজিক (অপরিবর্তিত) =================
+# ================= 3. ব্যাকএন্ড এপিআই লজিক =================
 
 @app.route('/')
 def home():
+    return render_template_string(HTML_TEMPLATE)
+
+# নতুন এডমিন রাউট
+@app.route('/admin')
+def admin_page():
     return render_template_string(HTML_TEMPLATE)
 
 @app.route('/api/sign', methods=['POST'])
