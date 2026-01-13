@@ -20,7 +20,7 @@ try:
     db = client['CloudTok_Final_Stable']
     api_col = db['apis']
     video_col = db['videos']
-    user_col = db['users'] # ইউজার কালেকশন যোগ করা হয়েছে
+    user_col = db['users'] 
     print("✓ MongoDB Connected Successfully")
 except Exception as e:
     print(f"✗ MongoDB Connection Error: {e}")
@@ -86,8 +86,8 @@ HTML_TEMPLATE = """
             100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
         }
 
-        /* Profile Nav Image Style */
         .nav-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; border: 1px solid #06b6d4; }
+        .stat-badge { font-size: 9px; padding: 2px 4px; border-radius: 4px; background: rgba(255,255,255,0.1); color: #06b6d4; border: 1px solid rgba(6, 182, 212, 0.2); }
     </style>
 </head>
 <body>
@@ -219,22 +219,29 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
 
-                <div class="glass-ui p-6 rounded-3xl border border-gray-800">
-                    <h3 class="text-gray-500 font-bold mb-4 text-xs uppercase">3. Content Manager</h3>
-                    <div id="contentList" class="space-y-4 max-h-[700px] overflow-y-auto scrollbar-hide pr-2"></div>
+                <div class="space-y-8">
+                    <div class="glass-ui p-6 rounded-3xl border border-gray-800">
+                        <h3 class="text-gray-500 font-bold mb-4 text-xs uppercase">3. Content Manager (Stats)</h3>
+                        <div id="contentList" class="space-y-4 max-h-[400px] overflow-y-auto scrollbar-hide pr-2"></div>
+                    </div>
+
+                    <div class="glass-ui p-6 rounded-3xl border border-gray-800">
+                        <h3 class="text-gray-500 font-bold mb-4 text-xs uppercase">4. User Manager (Admin Only)</h3>
+                        <div id="adminUserList" class="space-y-4 max-h-[400px] overflow-y-auto scrollbar-hide pr-2"></div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        let appState = { apis: [], videos: [], active_id: null, user: null };
+        let appState = { apis: [], videos: [], users: [], active_id: null, user: null };
         let currentMode = 'home'; 
         let filteredVideos = [];
         let observer;
 
         window.addEventListener('load', function() {
-            checkUserStatus(); // ইউজারের অবস্থা চেক করা
+            checkUserStatus();
             if(window.location.pathname.includes('/admin')) {
                 openAuth();
             }
@@ -325,7 +332,8 @@ HTML_TEMPLATE = """
 
         async function refreshData() {
             const res = await fetch('/api/data');
-            appState = {...appState, ...await res.json()};
+            const data = await res.json();
+            appState = {...appState, ...data};
 
             const urlParams = new URLSearchParams(window.location.search);
             const vId = urlParams.get('v');
@@ -405,7 +413,7 @@ HTML_TEMPLATE = """
                         </div>
                         <div onclick="shareVideo('${v.id}')" class="cursor-pointer">
                             <div class="glass-ui p-3 rounded-full text-xl">🔗</div>
-                            <span class="text-[10px] font-bold uppercase">Share</span>
+                            <span class="text-[10px] font-bold uppercase" id="share-count-${v.id}">${v.shares || 0}</span>
                         </div>
                         <div onclick="downloadVideo('${v.url}')" class="cursor-pointer">
                             <div class="glass-ui p-3 rounded-full text-xl bg-green-500/20">⬇️</div>
@@ -422,7 +430,7 @@ HTML_TEMPLATE = """
                             <img src="${v.poster || 'https://via.placeholder.com/150'}" class="w-12 h-12 rounded-lg border border-white/20 object-cover shadow-lg">
                             <div>
                                 <h3 class="text-cyan-400 font-black text-xl italic uppercase leading-none">${v.series}</h3>
-                                <p class="text-white font-bold text-[10px] opacity-90">Episode: ${v.episode}</p>
+                                <p class="text-white font-bold text-[10px] opacity-90">Episode: ${v.episode} | Views: ${v.views || 0}</p>
                             </div>
                         </div>
                     </div>
@@ -452,7 +460,11 @@ HTML_TEMPLATE = """
             observer = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
                     const video = entry.target.querySelector('video');
-                    if (entry.isIntersecting) { video.play().catch(e => {}); } 
+                    const vidId = video.id.split('-')[1];
+                    if (entry.isIntersecting) { 
+                        video.play().catch(e => {}); 
+                        handleInteraction(vidId, 'view'); // ভিউ কাউন্ট
+                    } 
                     else { video.pause(); video.currentTime = 0; }
                 });
             }, { threshold: 0.8 });
@@ -484,9 +496,12 @@ HTML_TEMPLATE = """
             v.currentTime += sec;
         }
 
-        function shareVideo(id) {
+        async function shareVideo(id) {
             const mainUrl = window.location.origin + "/?v=" + id;
             navigator.clipboard.writeText(mainUrl);
+            await handleInteraction(id, 'share'); // শেয়ার কাউন্ট
+            let el = document.getElementById('share-count-'+id);
+            if(el) el.innerText = parseInt(el.innerText) + 1;
             alert("Main Site Link Copied!");
         }
 
@@ -517,6 +532,7 @@ HTML_TEMPLATE = """
         }
 
         function renderAdmin() {
+            // API List
             document.getElementById('apiList').innerHTML = appState.apis.map(a => `
                 <div onclick="switchActiveApi('${a.id}')" class="flex justify-between items-center p-3 rounded-xl border cursor-pointer ${a.id === appState.active_id ? 'active-api shadow-lg' : 'border-gray-800'}">
                     <span class="text-xs font-bold">${a.cloud}</span>
@@ -524,15 +540,60 @@ HTML_TEMPLATE = """
                 </div>
             `).join('');
 
+            // 3. Content List With Stats
             document.getElementById('contentList').innerHTML = appState.videos.map(v => `
-                <div class="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-gray-800">
-                    <img src="${v.poster}" class="w-10 h-10 rounded object-cover">
-                    <div class="flex-1 overflow-hidden">
-                        <p class="font-bold text-cyan-400 text-xs uppercase truncate">${v.series} - EP ${v.episode}</p>
+                <div class="bg-white/5 p-3 rounded-2xl border border-gray-800">
+                    <div class="flex items-center gap-4 mb-3">
+                        <img src="${v.poster}" class="w-10 h-10 rounded object-cover">
+                        <div class="flex-1 overflow-hidden">
+                            <p class="font-bold text-cyan-400 text-xs uppercase truncate">${v.series} - EP ${v.episode}</p>
+                        </div>
+                        <button onclick="delVideo('${v.id}')" class="text-red-500 text-[10px] font-bold">DELETE</button>
                     </div>
-                    <button onclick="delVideo('${v.id}')" class="text-red-500 text-[10px] font-bold bg-red-500/10 px-3 py-1 rounded-lg">DELETE</button>
+                    <div class="flex gap-2">
+                        <div class="stat-badge">👁 ${v.views || 0}</div>
+                        <div class="stat-badge">❤️ ${v.likes || 0}</div>
+                        <div class="stat-badge">💬 ${(v.comments || []).length}</div>
+                        <div class="stat-badge">🔗 ${v.shares || 0}</div>
+                    </div>
                 </div>
             `).join('');
+
+            // 4. User List
+            document.getElementById('adminUserList').innerHTML = (appState.users || []).map(u => `
+                <div class="bg-white/5 p-3 rounded-xl border border-gray-800 text-[11px] space-y-1">
+                    <p class="text-cyan-400 font-bold">UID: ${u.id}</p>
+                    <p>Name: <span class="text-white">${u.name}</span></p>
+                    <p>Phone: <span class="text-white">${u.phone}</span></p>
+                    <div class="flex gap-2 pt-2">
+                        <button onclick="editUserName('${u.id}', '${u.name}')" class="bg-blue-600 px-2 py-1 rounded">Edit</button>
+                        <button onclick="delUser('${u.id}')" class="bg-red-600 px-2 py-1 rounded">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function editUserName(id, oldName) {
+            const newName = prompt("Enter New Name:", oldName);
+            if(newName) {
+                await fetch('/api/admin/edit_user', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ id, name: newName })
+                });
+                refreshData();
+            }
+        }
+
+        async function delUser(id) {
+            if(confirm("Delete this user?")) {
+                await fetch('/api/admin/del_user', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ id })
+                });
+                refreshData();
+            }
         }
 
         async function handleInteraction(id, type, commentText = "") {
@@ -708,7 +769,20 @@ def update_img():
     user_col.update_one({"id": uid}, {"$set": {"profile_img": request.json['url']}})
     return jsonify({"success": True})
 
-# --- ভিডিও ও এডমিন এপিআই ---
+# --- অ্যাডমিন এক্সক্লুসিভ (ইউজার কন্ট্রোল) ---
+@app.route('/api/admin/edit_user', methods=['POST'])
+def admin_edit_user():
+    if not session.get('admin_session'): return "Unauthorized", 401
+    user_col.update_one({"id": request.json['id']}, {"$set": {"name": request.json['name']}})
+    return jsonify({"success": True})
+
+@app.route('/api/admin/del_user', methods=['POST'])
+def admin_del_user():
+    if not session.get('admin_session'): return "Unauthorized", 401
+    user_col.delete_one({"id": request.json['id']})
+    return jsonify({"success": True})
+
+# --- ভিডিও ও ইন্টারঅ্যাকশন ---
 
 @app.route('/api/sign', methods=['POST'])
 def sign_api():
@@ -739,10 +813,14 @@ def auth_check():
 def get_data():
     apis = list(api_col.find({}, {'_id': 0}))
     vids = list(video_col.find({}, {'_id': 0}).sort('episode', 1))
+    users = []
+    if session.get('admin_session'):
+        users = list(user_col.find({}, {'_id': 0, 'password': 0}))
     active = api_col.find_one({"is_active": True})
     return jsonify({
         "apis": apis, 
         "videos": vids, 
+        "users": users,
         "active_id": active['id'] if active else None
     })
 
@@ -783,6 +861,8 @@ def save_video():
         "episode": int(data['ep']),
         "poster": data.get('poster', ''),
         "likes": 0,
+        "views": 0,
+        "shares": 0,
         "comments": [],
         "created_at": datetime.now()
     })
@@ -793,6 +873,10 @@ def interaction():
     data = request.json
     if data['type'] == 'like':
         video_col.update_one({"id": data['id']}, {"$inc": {"likes": 1}})
+    elif data['type'] == 'view':
+        video_col.update_one({"id": data['id']}, {"$inc": {"views": 1}})
+    elif data['type'] == 'share':
+        video_col.update_one({"id": data['id']}, {"$inc": {"shares": 1}})
     elif data['type'] == 'comment' and data.get('comment'):
         video_col.update_one({"id": data['id']}, {"$push": {"comments": data['comment']}})
     return jsonify({"success": True})
