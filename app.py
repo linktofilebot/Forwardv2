@@ -38,68 +38,53 @@ HTML_TEMPLATE = """
     <style>
         body { background: #000; color: #fff; font-family: 'Inter', sans-serif; overflow: hidden; margin: 0; }
         
-        /* Desktop/Mobile Auto Mode */
+        /* ডেস্কটপ ও মোবাইলের জন্য অটো মোড */
         .feed-container { 
             height: 100vh; 
             scroll-snap-type: y mandatory; 
             overflow-y: scroll; 
             scrollbar-width: none; 
-            max-width: 500px; /* Desktop এ মোবাইলের মতো দেখাবে */
-            margin: 0 auto;
-            border-left: 1px solid #222;
-            border-right: 1px solid #222;
+            max-width: 500px; 
+            margin: 0 auto; 
+            position: relative;
+            background: #000;
         }
-        
-        @media (max-width: 600px) {
-            .feed-container { max-width: 100%; border: none; }
-        }
+        @media (max-width: 600px) { .feed-container { max-width: 100%; } }
 
-        .video-card { height: 100vh; scroll-snap-align: start; position: relative; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .video-card { height: 100vh; scroll-snap-align: start; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         video { height: 100%; width: 100%; object-fit: cover; }
-        
         .glass-ui { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); }
         .active-api { border: 2px solid #06b6d4 !important; background: rgba(6, 182, 212, 0.15); }
         .btn-grad { background: linear-gradient(45deg, #06b6d4, #3b82f6); transition: 0.3s; }
-
-        /* Progress Bar (উপরে আনা হয়েছে) */
-        .video-progress-container { 
-            position: absolute; 
-            bottom: 85px; /* মেনুর কিছুটা উপরে */
-            left: 5%; 
-            width: 90%; 
-            height: 6px; 
-            background: rgba(255,255,255,0.2); 
-            cursor: pointer; 
-            z-index: 65; 
-            border-radius: 10px;
-        }
-        .video-progress-bar { height: 100%; background: #06b6d4; width: 0%; border-radius: 10px; position: relative; }
-        .time-display { position: absolute; top: -20px; right: 0; font-size: 10px; color: #06b6d4; font-weight: bold; }
+        .btn-grad:active { transform: scale(0.95); }
+        
+        /* প্রগ্রেস বার একটু উপরে আনা হয়েছে */
+        .video-progress-container { position: absolute; bottom: 90px; left: 5%; width: 90%; height: 6px; background: rgba(255,255,255,0.2); cursor: pointer; z-index: 60; border-radius: 10px; }
+        .video-progress-bar { height: 100%; background: #06b6d4; width: 0%; border-radius: 10px; transition: width 0.1s linear; position: relative; }
+        .time-info { position: absolute; top: -20px; right: 0; font-size: 10px; color: #06b6d4; font-weight: bold; }
         
         /* Bottom Nav */
-        .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 500px; background: rgba(0,0,0,0.9); display: flex; justify-content: space-around; padding: 12px; z-index: 70; border-top: 1px solid #222; }
+        .bottom-nav { position: fixed; bottom: 0; width: 100%; max-width: 500px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); display: flex; justify-content: space-around; padding: 15px; z-index: 70; }
         
         .skip-area { position: absolute; top: 0; height: 100%; width: 30%; z-index: 40; }
         .skip-left { left: 0; }
         .skip-right { right: 0; }
-
+        
         /* Explore Grid */
-        .explore-grid { display: grid; grid-template-cols: repeat(2, 1fr); gap: 10px; padding: 20px; padding-bottom: 100px; }
+        .explore-grid { display: grid; grid-template-cols: repeat(2, 1fr); gap: 10px; padding: 20px; padding-top: 80px; padding-bottom: 100px; }
     </style>
 </head>
 <body>
 
     <!-- Header -->
-    <nav class="fixed top-0 left-50 w-full z-50 flex justify-between p-5 bg-gradient-to-b from-black/80 to-transparent max-w-[500px] left-1/2 -translate-x-1/2">
+    <nav class="fixed top-0 w-full max-width-[500px] z-50 flex justify-between p-5 bg-gradient-to-b from-black/80 to-transparent">
         <h1 onclick="loadHome()" class="text-2xl font-black italic text-cyan-400 uppercase tracking-tighter cursor-pointer">Cloud<span class="text-white">Tok</span></h1>
         <button onclick="openAuth()" class="bg-white/10 px-6 py-2 rounded-full text-[10px] font-bold border border-white/20 hover:bg-cyan-500 transition">ADMIN</button>
     </nav>
 
-    <!-- Content Area -->
-    <div id="mainContainer" class="feed-container scrollbar-hide">
-        <div id="videoFeed"></div>
-    </div>
+    <!-- Video Feed Container -->
+    <div id="videoFeed" class="feed-container scrollbar-hide"></div>
 
     <!-- Bottom Navigation -->
     <div class="bottom-nav">
@@ -113,7 +98,7 @@ HTML_TEMPLATE = """
         </button>
     </div>
 
-    <!-- Modals (Login, Comment, Admin) - Original Logic Intact -->
+    <!-- Login Modal -->
     <div id="loginModal" class="hidden fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-6">
         <div class="glass-ui p-8 rounded-3xl w-full max-sm:max-w-xs text-center">
             <h2 class="text-2xl font-black mb-6 text-cyan-400">ADMIN LOGIN</h2>
@@ -123,6 +108,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
+    <!-- Comment Modal -->
     <div id="commentModal" class="hidden fixed inset-0 z-[100] bg-black/80 flex items-end justify-center">
         <div class="glass-ui w-full max-w-md p-6 rounded-t-3xl min-h-[50vh]">
             <div class="flex justify-between items-center mb-4">
@@ -137,7 +123,7 @@ HTML_TEMPLATE = """
         </div>
     </div>
 
-    <!-- Admin Panel (Keep Original) -->
+    <!-- Admin Panel (মেইন কোড অপরিবর্তিত) -->
     <div id="adminPanel" class="hidden fixed inset-0 z-[80] bg-black p-4 md:p-8 overflow-y-auto">
         <div class="max-w-6xl mx-auto pb-20">
             <div class="flex justify-between items-center mb-10 border-b border-gray-800 pb-5">
@@ -147,6 +133,7 @@ HTML_TEMPLATE = """
                     <button onclick="location.reload()" class="text-white text-3xl">✖</button>
                 </div>
             </div>
+
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-10">
                 <div class="space-y-8">
                     <div class="glass-ui p-6 rounded-3xl border border-gray-800">
@@ -159,6 +146,7 @@ HTML_TEMPLATE = """
                         <button onclick="saveApi()" class="w-full bg-cyan-700 p-3 rounded-xl font-bold text-xs uppercase">Save Account</button>
                         <div id="apiList" class="mt-6 space-y-2"></div>
                     </div>
+
                     <div class="glass-ui p-6 rounded-3xl border border-cyan-500/20 shadow-2xl">
                         <h3 class="text-cyan-400 font-bold mb-4 text-xs uppercase">2. Post Movie/Series</h3>
                         <div class="space-y-4">
@@ -174,6 +162,7 @@ HTML_TEMPLATE = """
                         </div>
                     </div>
                 </div>
+
                 <div class="glass-ui p-6 rounded-3xl border border-gray-800">
                     <h3 class="text-gray-500 font-bold mb-4 text-xs uppercase">3. Content Manager</h3>
                     <div id="contentList" class="space-y-4 max-h-[700px] overflow-y-auto scrollbar-hide pr-2"></div>
@@ -191,15 +180,14 @@ HTML_TEMPLATE = """
         async function refreshData() {
             const res = await fetch('/api/data');
             appState = await res.json();
-            
-            // শেয়ার করা ভিডিও হ্যান্ডেল করা
+
+            // শেয়ার্ড লিংক চেক (ইউটিউব এর মতো কাজ করার জন্য)
             const urlParams = new URLSearchParams(window.location.search);
-            const vidId = urlParams.get('v');
-            
-            if(vidId && currentMode === 'home') {
-                const specificVid = appState.videos.find(v => v.id === vidId);
+            const vId = urlParams.get('v');
+            if(vId && currentMode === 'home') {
+                const specificVid = appState.videos.find(v => v.id === vId);
                 if(specificVid) {
-                    filteredVideos = [specificVid, ...appState.videos.filter(v => v.id !== vidId && parseInt(v.episode) === 1)];
+                    filteredVideos = [specificVid, ...appState.videos.filter(v => v.id !== vId)];
                     renderFeed();
                     return;
                 }
@@ -213,33 +201,27 @@ HTML_TEMPLATE = """
             currentMode = 'home';
             filteredVideos = appState.videos.filter(v => parseInt(v.episode) === 1);
             renderFeed();
-            window.scrollTo(0,0);
+            document.getElementById('videoFeed').scrollTo(0,0);
         }
 
-        // EXPLORE ফাংশন ঠিক করা হয়েছে
+        // --- EXPLORE অপশন ঠিক করা হয়েছে ---
         function loadExplore() {
             currentMode = 'explore';
-            const container = document.getElementById('videoFeed');
-            
-            // ইউনিক মুভি লিস্ট বের করা
+            const feed = document.getElementById('videoFeed');
+            // ইউনিক মুভি লিস্ট তৈরি করা
             const seriesList = [...new Map(appState.videos.map(item => [item.series, item])).values()];
             
-            container.innerHTML = `
-                <div class="pt-20 px-5"><h2 class="text-xl font-bold text-cyan-400 mb-5">EXPLORE MOVIES</h2></div>
+            feed.innerHTML = `
                 <div class="explore-grid">
                     ${seriesList.map(s => `
-                        <div onclick="loadSeries('${s.series}')" class="cursor-pointer group">
-                            <div class="relative aspect-[2/3] overflow-hidden rounded-xl border border-gray-800">
-                                <img src="${s.poster}" class="w-full h-full object-cover group-hover:scale-110 transition duration-500">
-                                <div class="absolute bottom-0 left-0 w-full p-2 bg-gradient-to-t from-black text-[10px] font-bold truncate">
-                                    ${s.series}
-                                </div>
-                            </div>
+                        <div onclick="loadSeries('${s.series}')" class="relative group cursor-pointer overflow-hidden rounded-xl border border-white/10">
+                            <img src="${s.poster}" class="w-full aspect-[2/3] object-cover group-hover:scale-110 transition">
+                            <div class="absolute bottom-0 p-2 bg-black/60 w-full text-[10px] font-bold truncate">${s.series}</div>
                         </div>
                     `).join('')}
                 </div>
             `;
-            document.getElementById('mainContainer').scrollTo(0,0);
+            feed.scrollTo(0,0);
         }
 
         function loadSeries(seriesName) {
@@ -258,8 +240,8 @@ HTML_TEMPLATE = """
             }
             feed.innerHTML = filteredVideos.map((v, index) => `
                 <div class="video-card" id="card-${v.id}">
-                    <div class="skip-area skip-left" onclick="skipTime('vid-${v.id}', -10)"></div>
-                    <div class="skip-area skip-right" onclick="skipTime('vid-${v.id}', 10)"></div>
+                    <div class="skip-area skip-left" onclick="skipTime('vid-${v.id}', -5)"></div>
+                    <div class="skip-area skip-right" onclick="skipTime('vid-${v.id}', 5)"></div>
                     
                     <video id="vid-${v.id}" src="${v.url}" loop playsinline 
                         onclick="togglePlay('vid-${v.id}')"
@@ -286,23 +268,27 @@ HTML_TEMPLATE = """
                             <div class="glass-ui p-3 rounded-full text-xl bg-green-500/20">⬇️</div>
                             <span class="text-[10px] font-bold uppercase">Save</span>
                         </div>
+                        <div onclick="loadSeries('${v.series}')" class="cursor-pointer">
+                            <div class="glass-ui p-3 rounded-full text-xl bg-cyan-500/50 border-cyan-400 border">🎬</div>
+                            <span class="text-[10px] font-bold text-cyan-400">PARTS</span>
+                        </div>
                     </div>
 
                     <!-- Info -->
                     <div class="absolute bottom-24 left-6 right-20 z-10 pointer-events-none">
                         <div class="flex items-center gap-3 mb-2">
-                            <img src="${v.poster || ''}" class="w-10 h-10 rounded-lg border border-white/20 object-cover shadow-lg">
+                            <img src="${v.poster || 'https://via.placeholder.com/150'}" class="w-12 h-12 rounded-lg border border-white/20 object-cover shadow-lg">
                             <div>
-                                <h3 class="text-cyan-400 font-black text-lg italic uppercase leading-none">${v.series}</h3>
-                                <p class="text-white font-bold text-[10px] opacity-90">Part: ${v.episode}</p>
+                                <h3 class="text-cyan-400 font-black text-xl italic uppercase leading-none">${v.series}</h3>
+                                <p class="text-white font-bold text-[10px] opacity-90">Episode: ${v.episode}</p>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Manual Progress Bar with Time -->
+                    <!-- Progress Bar with Time -->
                     <div class="video-progress-container" onclick="seekVideo(event, 'vid-${v.id}')">
                         <div id="progress-${v.id}" class="video-progress-bar">
-                             <span id="time-${v.id}" class="time-display">00:00</span>
+                            <span id="time-${v.id}" class="time-info">00:00</span>
                         </div>
                     </div>
                 </div>
@@ -331,42 +317,6 @@ HTML_TEMPLATE = """
             video.currentTime = clickedValue * video.duration;
         }
 
-        function updateProgress(id) {
-            const v = document.getElementById('vid-' + id);
-            const bar = document.getElementById('progress-' + id);
-            const timeTxt = document.getElementById('time-' + id);
-            if(v && bar) {
-                const percent = (v.currentTime / v.duration) * 100;
-                bar.style.width = percent + '%';
-                
-                // মিনিট ও সেকেন্ড ফরম্যাট
-                let mins = Math.floor(v.currentTime / 60);
-                let secs = Math.floor(v.currentTime % 60);
-                let durMins = Math.floor(v.duration / 60) || 0;
-                let durSecs = Math.floor(v.duration % 60) || 0;
-                timeTxt.innerText = `${mins}:${secs < 10 ? '0'+secs : secs} / ${durMins}:${durSecs < 10 ? '0'+durSecs : durSecs}`;
-            }
-        }
-
-        // শেয়ারিং লিংক ইউটিউবের মতো সাইটেই ওপেন হবে
-        function shareVideo(id) {
-            const shareUrl = window.location.origin + "?v=" + id;
-            navigator.clipboard.writeText(shareUrl);
-            alert("Video Link Copied! Now others can watch it here.");
-        }
-
-        // ডাউনলোড সরাসরি করার ট্রাই করবে
-        function downloadVideo(url) {
-            // Cloudinary এর ক্ষেত্রে fl_attachment যোগ করলে সরাসরি ডাউনলোড হয়
-            const downloadUrl = url.replace("/upload/", "/upload/fl_attachment/");
-            const a = document.createElement('a');
-            a.href = downloadUrl;
-            a.setAttribute('download', 'CloudTok_Video.mp4');
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        }
-
         function togglePlay(id) {
             const v = document.getElementById(id);
             v.paused ? v.play() : v.pause();
@@ -384,7 +334,42 @@ HTML_TEMPLATE = """
             v.currentTime += sec;
         }
 
-        // --- Original logic keep start ---
+        // শেয়ার লিংক এখন ইউটিউব এর মতো কাজ করবে
+        function shareVideo(id) {
+            const mainUrl = window.location.origin + "/?v=" + id;
+            navigator.clipboard.writeText(mainUrl);
+            alert("Main Site Link Copied!");
+        }
+
+        // ডাউনলোড সরাসরি করার অপশন
+        function downloadVideo(url) {
+            const downloadUrl = url.replace("/upload/", "/upload/fl_attachment/");
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = "CloudTok_Video.mp4";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function updateProgress(id) {
+            const v = document.getElementById('vid-' + id);
+            const bar = document.getElementById('progress-' + id);
+            const timeTxt = document.getElementById('time-' + id);
+            if(v && bar) {
+                const percent = (v.currentTime / v.duration) * 100;
+                bar.style.width = percent + '%';
+                
+                // মিনিট ও সেকেন্ড ফরম্যাট
+                let m = Math.floor(v.currentTime / 60);
+                let s = Math.floor(v.currentTime % 60);
+                let durM = Math.floor(v.duration / 60) || 0;
+                let durS = Math.floor(v.duration % 60) || 0;
+                timeTxt.innerText = `${m}:${s < 10 ? '0'+s : s} / ${durM}:${durS < 10 ? '0'+durS : durS}`;
+            }
+        }
+
+        // --- অরিজিনাল এডমিন লজিক ---
         function renderAdmin() {
             document.getElementById('apiList').innerHTML = appState.apis.map(a => `
                 <div onclick="switchActiveApi('${a.id}')" class="flex justify-between items-center p-3 rounded-xl border cursor-pointer ${a.id === appState.active_id ? 'active-api shadow-lg' : 'border-gray-800'}">
@@ -496,7 +481,7 @@ HTML_TEMPLATE = """
         async function tryLogin() {
             const pass = document.getElementById('adminPass').value;
             const res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ pass }) });
-            if((await res.json()).success) { location.reload(); } else { alert("Wrong!"); }
+            if((await res.json()).success) { location.reload(); } else { alert("Wrong Password!"); }
         }
 
         async function doLogout() {
@@ -511,7 +496,7 @@ HTML_TEMPLATE = """
 </html>
 """
 
-# ================= 3. ব্যাকএন্ড এপিআই লজিক (Keep Original) =================
+# ================= 3. ব্যাকএন্ড এপিআই লজিক (অপরিবর্তিত) =================
 
 @app.route('/')
 def home():
