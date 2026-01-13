@@ -24,6 +24,9 @@ from wtforms import form, fields
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'MY_SUPER_SECRET_KEY_123')
 
+# Flask-Admin ২.০ ভার্সনের জন্য টেমপ্লেট মোড এখানে সেট করতে হবে
+app.config['FLASK_ADMIN_TEMPLATE_MODE'] = 'bootstrap3'
+
 # এডমিন লগইন ডিটেইলস
 ADMIN_USER = "admin"
 ADMIN_PASS = "admin123"
@@ -36,7 +39,7 @@ videos_col = db['videos']
 
 # --- ২. এডমিন প্যানেল লজিক ---
 
-# PyMongo এর জন্য ম্যানুয়াল ফর্ম তৈরি (এটিই আপনার এরর সমাধান করবে)
+# PyMongo এর জন্য ম্যানুয়াল ফর্ম তৈরি
 class VideoForm(form.Form):
     title = fields.StringField('Video Title')
     url = fields.StringField('Direct MP4 Link (URL)')
@@ -62,8 +65,8 @@ class VideoAdminView(ModelView):
     def inaccessible_callback(self, name, **kwargs):
         return redirect(url_for('login'))
 
-# এডমিন প্যানেল সেটআপ
-admin = Admin(app, name='Shorts Admin', index_view=MyAdminIndexView(), template_mode='bootstrap3')
+# এডমিন প্যানেল সেটআপ (এখান থেকে template_mode সরানো হয়েছে ইরর ঠিক করতে)
+admin = Admin(app, name='Shorts Admin', index_view=MyAdminIndexView())
 admin.add_view(VideoAdminView(videos_col, name='Manage Videos'))
 
 # --- ৩. HTML টেমপ্লেটসমূহ ---
