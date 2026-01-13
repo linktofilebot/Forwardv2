@@ -29,9 +29,12 @@ ADMIN_PASS = "admin123"
 
 # MongoDB সংযোগ (আপনার Atlas Link এখানে বসান)
 # উদাহরণ: "mongodb+srv://user:pass@cluster.mongodb.net/dbname"
-MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://tmlbdmovies:tmlbd198j@cluster0.op4v2d8.mongodb.net/?appName=Cluster0")
+# এই লাইনটি পরিবর্তন করুন
+MONGO_URI = os.environ.get("MONGO_URI", "mongodb+srv://tmlbdmovies:tmlbd198j@cluster0.op4v2d8.mongodb.net/?appName=Cluster0") 
 client = MongoClient(MONGO_URI)
-db = client.get_database()
+
+# এখানে ডাটাবেসের নাম নির্দিষ্ট করে দিন (যেমন: 'shorts_db')
+db = client['shorts_db'] 
 videos_col = db['videos']
 
 # --- ২. এডমিন প্যানেল লজিক (লগইন সিস্টেম সহ) ---
