@@ -46,7 +46,7 @@ HTML_TEMPLATE = """
         .btn-grad { background: linear-gradient(45deg, #06b6d4, #3b82f6); transition: 0.3s; }
         .btn-grad:active { transform: scale(0.95); }
         
-        .video-progress-container { position: absolute; bottom: 0; left: 0; width: 100%; height: 4px; background: rgba(255,255,255,0.2); cursor: pointer; z-index: 60; }
+        .video-progress-container { position: absolute; bottom: 0; left: 0; width: 100%; height: 10px; background: rgba(255,255,255,0.1); cursor: pointer; z-index: 60; }
         .video-progress-bar { height: 100%; background: #06b6d4; width: 0%; transition: width 0.1s linear; }
         
         /* Bottom Nav */
@@ -158,6 +158,7 @@ HTML_TEMPLATE = """
         let appState = { apis: [], videos: [], active_id: null };
         let currentMode = 'home'; 
         let filteredVideos = [];
+        let observer;
 
         async function refreshData() {
             const res = await fetch('/api/data');
@@ -192,7 +193,7 @@ HTML_TEMPLATE = """
                     <div class="skip-area skip-left" onclick="skipTime('vid-${v.id}', -5)"></div>
                     <div class="skip-area skip-right" onclick="skipTime('vid-${v.id}', 5)"></div>
                     
-                    <video id="vid-${v.id}" src="${v.url}" loop autoplay playsinline 
+                    <video id="vid-${v.id}" src="${v.url}" loop playsinline 
                         onclick="togglePlay('vid-${v.id}')"
                         ontimeupdate="updateProgress('${v.id}')"></video>
                     
@@ -239,6 +240,36 @@ HTML_TEMPLATE = """
                     </div>
                 </div>
             `).join('');
+
+            initObserver();
+        }
+
+        // --- নতুন এডেড ফাংশন: স্ক্রল করলে অটো প্লে/পজ ---
+        function initObserver() {
+            if(observer) observer.disconnect();
+            
+            observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    const video = entry.target.querySelector('video');
+                    if (entry.isIntersecting) {
+                        video.play().catch(e => console.log("Auto-play blocked"));
+                    } else {
+                        video.pause();
+                        video.currentTime = 0; // আগের ভিডিও রিসেট হবে
+                    }
+                });
+            }, { threshold: 0.8 }); // ৮০% ভিডিও স্ক্রিনে আসলে প্লে হবে
+
+            document.querySelectorAll('.video-card').forEach(card => observer.observe(card));
+        }
+
+        // --- নতুন এডেড ফাংশন: ট্যাপ করলে ভিডিও সিক (Seek) হবে ---
+        function seekVideo(e, videoId) {
+            const video = document.getElementById(videoId);
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const clickedValue = x / rect.width;
+            video.currentTime = clickedValue * video.duration;
         }
 
         function togglePlay(id) {
