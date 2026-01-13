@@ -40,7 +40,7 @@ HTML_TEMPLATE = """
         .feed-container { height: 100vh; scroll-snap-type: y mandatory; overflow-y: scroll; scrollbar-width: none; }
         .video-card { height: 100vh; scroll-snap-align: start; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
-        video { height: 100%; width: 100%; object-fit: cover; cursor: pointer; }
+        video { height: 100%; width: 100%; object-fit: cover; }
         .glass-ui { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); }
         .active-api { border: 2px solid #06b6d4 !important; background: rgba(6, 182, 212, 0.15); }
         .btn-grad { background: linear-gradient(45deg, #06b6d4, #3b82f6); transition: 0.3s; }
@@ -51,6 +51,11 @@ HTML_TEMPLATE = """
         
         /* Bottom Nav */
         .bottom-nav { position: fixed; bottom: 0; width: 100%; background: linear-gradient(to top, black, transparent); display: flex; justify-content: space-around; padding: 15px; z-index: 70; }
+        
+        /* Touch Skip Overlay */
+        .skip-area { position: absolute; top: 0; height: 100%; width: 30%; z-index: 40; }
+        .skip-left { left: 0; }
+        .skip-right { right: 0; }
     </style>
 </head>
 <body>
@@ -126,11 +131,17 @@ HTML_TEMPLATE = """
                     </div>
 
                     <div class="glass-ui p-6 rounded-3xl border border-cyan-500/20 shadow-2xl">
-                        <h3 class="text-cyan-400 font-bold mb-4 text-xs uppercase">2. Upload Episode</h3>
+                        <h3 class="text-cyan-400 font-bold mb-4 text-xs uppercase">2. Post Movie/Series</h3>
                         <div class="space-y-4">
-                            <input id="movieTitle" placeholder="Movie Name (Same for all parts)" class="w-full bg-black p-4 rounded-xl border border-gray-800">
-                            <input id="epNo" type="number" placeholder="Episode Number (1, 2, 3...)" class="w-full bg-black p-4 rounded-xl border border-gray-800">
-                            <button onclick="initUpload()" class="w-full btn-grad p-5 rounded-2xl font-black text-xl shadow-lg">🚀 UPLOAD VIDEO</button>
+                            <input id="movieTitle" placeholder="Movie Name" class="w-full bg-black p-4 rounded-xl border border-gray-800">
+                            <input id="moviePoster" placeholder="Poster Image URL" class="w-full bg-black p-4 rounded-xl border border-gray-800">
+                            <div class="p-4 border border-dashed border-gray-700 rounded-xl">
+                                <p class="text-[10px] text-gray-400 mb-2">ADD EPISODE</p>
+                                <div class="flex gap-2">
+                                    <input id="epNo" type="number" placeholder="No." class="w-20 bg-black p-2 rounded-lg border border-gray-800">
+                                    <button onclick="initUpload()" class="flex-1 btn-grad p-2 rounded-lg font-bold text-xs">🚀 UPLOAD VIDEO FOR THIS EPISODE</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -145,7 +156,7 @@ HTML_TEMPLATE = """
 
     <script>
         let appState = { apis: [], videos: [], active_id: null };
-        let currentMode = 'home'; // 'home' or 'series'
+        let currentMode = 'home'; 
         let filteredVideos = [];
 
         async function refreshData() {
@@ -157,7 +168,6 @@ HTML_TEMPLATE = """
 
         function loadHome() {
             currentMode = 'home';
-            // Home এ শুধু ১ম পর্বগুলো দেখাবে
             filteredVideos = appState.videos.filter(v => parseInt(v.episode) === 1);
             renderFeed();
             window.scrollTo(0,0);
@@ -165,12 +175,10 @@ HTML_TEMPLATE = """
 
         function loadSeries(seriesName) {
             currentMode = 'series';
-            // নির্দিষ্ট সিরিজের সব পর্ব সিরিয়াল অনুযায়ী ফিল্টার
             filteredVideos = appState.videos
                 .filter(v => v.series === seriesName)
                 .sort((a, b) => parseInt(a.episode) - parseInt(b.episode));
             renderFeed();
-            alert("Playing All Episodes of: " + seriesName);
         }
 
         function renderFeed() {
@@ -181,12 +189,18 @@ HTML_TEMPLATE = """
             }
             feed.innerHTML = filteredVideos.map((v, index) => `
                 <div class="video-card" id="card-${v.id}">
+                    <div class="skip-area skip-left" onclick="skipTime('vid-${v.id}', -5)"></div>
+                    <div class="skip-area skip-right" onclick="skipTime('vid-${v.id}', 5)"></div>
+                    
                     <video id="vid-${v.id}" src="${v.url}" loop autoplay playsinline 
                         onclick="togglePlay('vid-${v.id}')"
                         ontimeupdate="updateProgress('${v.id}')"></video>
                     
                     <!-- Sidebar Actions -->
                     <div class="absolute right-5 bottom-32 flex flex-col gap-5 text-center z-50">
+                        <div onclick="toggleMute('vid-${v.id}')" class="cursor-pointer">
+                            <div class="glass-ui p-3 rounded-full text-xl" id="vol-icon-vid-${v.id}">🔊</div>
+                        </div>
                         <div onclick="handleInteraction('${v.id}', 'like')" class="cursor-pointer">
                             <div class="glass-ui p-3 rounded-full text-xl">❤️</div>
                             <span class="text-[10px] font-bold">${v.likes || 0}</span>
@@ -194,6 +208,14 @@ HTML_TEMPLATE = """
                         <div onclick="openComments('${v.id}')" class="cursor-pointer">
                             <div class="glass-ui p-3 rounded-full text-xl">💬</div>
                             <span class="text-[10px] font-bold">${(v.comments || []).length}</span>
+                        </div>
+                        <div onclick="shareVideo('${v.url}')" class="cursor-pointer">
+                            <div class="glass-ui p-3 rounded-full text-xl">🔗</div>
+                            <span class="text-[10px] font-bold uppercase">Share</span>
+                        </div>
+                        <div onclick="downloadVideo('${v.url}')" class="cursor-pointer">
+                            <div class="glass-ui p-3 rounded-full text-xl bg-green-500/20">⬇️</div>
+                            <span class="text-[10px] font-bold uppercase">Save</span>
                         </div>
                         <div onclick="loadSeries('${v.series}')" class="cursor-pointer">
                             <div class="glass-ui p-3 rounded-full text-xl bg-cyan-500/50 border-cyan-400 border">🎬</div>
@@ -203,8 +225,13 @@ HTML_TEMPLATE = """
 
                     <!-- Info -->
                     <div class="absolute bottom-20 left-6 right-20 z-10 pointer-events-none">
-                        <h3 class="text-cyan-400 font-black text-2xl italic uppercase leading-none">${v.series}</h3>
-                        <p class="text-white font-bold text-sm opacity-90 mt-1">Episode: ${v.episode}</p>
+                        <div class="flex items-center gap-3 mb-2">
+                            <img src="${v.poster || 'https://via.placeholder.com/150'}" class="w-12 h-12 rounded-lg border border-white/20 object-cover shadow-lg">
+                            <div>
+                                <h3 class="text-cyan-400 font-black text-xl italic uppercase leading-none">${v.series}</h3>
+                                <p class="text-white font-bold text-[10px] opacity-90">Episode: ${v.episode}</p>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="video-progress-container" onclick="seekVideo(event, 'vid-${v.id}')">
@@ -217,6 +244,32 @@ HTML_TEMPLATE = """
         function togglePlay(id) {
             const v = document.getElementById(id);
             v.paused ? v.play() : v.pause();
+        }
+        
+        function toggleMute(id) {
+            const v = document.getElementById(id);
+            const icon = document.getElementById('vol-icon-' + id);
+            v.muted = !v.muted;
+            icon.innerText = v.muted ? '🔇' : '🔊';
+        }
+
+        function skipTime(id, sec) {
+            const v = document.getElementById(id);
+            v.currentTime += sec;
+        }
+
+        function shareVideo(url) {
+            navigator.clipboard.writeText(url);
+            alert("Video Link Copied!");
+        }
+
+        function downloadVideo(url) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "CloudTok_Video.mp4";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
         }
 
         function updateProgress(id) {
@@ -238,6 +291,7 @@ HTML_TEMPLATE = """
 
             document.getElementById('contentList').innerHTML = appState.videos.map(v => `
                 <div class="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-gray-800">
+                    <img src="${v.poster}" class="w-10 h-10 rounded object-cover">
                     <div class="flex-1 overflow-hidden">
                         <p class="font-bold text-cyan-400 text-xs uppercase truncate">${v.series} - EP ${v.episode}</p>
                     </div>
@@ -246,13 +300,13 @@ HTML_TEMPLATE = """
             `).join('');
         }
 
-        // Cloudinary Upload Logic
         function initUpload() {
             const title = document.getElementById('movieTitle').value;
+            const poster = document.getElementById('moviePoster').value;
             const ep = document.getElementById('epNo').value;
             const activeAPI = appState.apis.find(a => a.id === appState.active_id);
 
-            if(!title || !ep || !activeAPI) return alert("Fill Info and Select API!");
+            if(!title || !ep || !activeAPI) return alert("Fill Name, Episode and Select API!");
 
             cloudinary.createUploadWidget({
                 cloudName: activeAPI.cloud,
@@ -272,9 +326,11 @@ HTML_TEMPLATE = """
                     fetch('/api/save_video', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ url: res.info.secure_url, series: title, ep: ep })
-                    }).then(() => refreshData());
-                    alert("Uploaded Episode " + ep + " to " + title);
+                        body: JSON.stringify({ url: res.info.secure_url, series: title, ep: ep, poster: poster })
+                    }).then(() => {
+                        refreshData();
+                        alert("Uploaded Episode " + ep);
+                    });
                 }
             }).open();
         }
@@ -434,6 +490,7 @@ def save_video():
         "url": data['url'],
         "series": data['series'].strip(),
         "episode": int(data['ep']),
+        "poster": data.get('poster', ''),
         "likes": 0,
         "comments": [],
         "created_at": datetime.now()
