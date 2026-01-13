@@ -38,7 +38,6 @@ def home():
     return "Bot is alive and running!"
 
 def run_web_server():
-    # Render অটোমেটিক $PORT এনভায়রনমেন্ট ভেরিয়েবল দেয়
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host='0.0.0.0', port=port)
 
@@ -73,12 +72,13 @@ def get_serial(message):
 @app.on_message(filters.command("start") & filters.user(ADMIN_ID))
 async def start(client, message):
     await message.reply_text(
-        "🚀 **বট এখন সচল!**\n\n"
+        "🚀 **বট এখন সচল! (বাটন সাপোর্ট সহ)**\n\n"
         "**সেটআপ গাইড:**\n"
         "1️⃣ `/add_source -100xxx` : ফাইল রাখার চ্যানেল আইডি\n"
         "2️⃣ `/add_dest -100xxx` : মেইন চ্যানেল আইডি\n"
-        "3️⃣ `/limit 5` : প্রতি ঘণ্টায় ৫টি ফাইল যাবে\n"
-        "4️⃣ `/status` : কিউ চেক করুন")
+        "3️⃣ `/limit 5` : প্রতি ঘণ্টায় কয়টি ফাইল যাবে\n"
+        "4️⃣ `/status` : কিউ চেক করুন\n\n"
+        "📌 ফাইল আপলোড করার সময় ক্যাপশনের শুরুতে ১, ২, ৩ এভাবে সিরিয়াল দিন।")
 
 @app.on_message(filters.command("add_source") & filters.user(ADMIN_ID))
 async def add_src(client, message):
@@ -127,7 +127,7 @@ async def collector(client, message):
             if s.get("next_serial") is None:
                 await settings_col.update_one({"_id": "settings"}, {"$set": {"next_serial": serial}})
 
-# --- অটো ফরওয়ার্ডার ওয়ার্কার ---
+# --- অটো ফরওয়ার্ডার ওয়ার্কার (বাটন সাপোর্ট সহ) ---
 async def worker():
     while True:
         try:
@@ -143,16 +143,30 @@ async def worker():
             task = await queue_col.find_one({"serial": ptr})
             
             if task and s["destinations"]:
+                # মূল মেসেজ গেট করা যাতে বাটন পাওয়া যায়
+                try:
+                    original_msg = await app.get_messages(task["from_id"], task["msg_id"])
+                except Exception:
+                    logger.error(f"Serial {ptr} message not found. Skipping...")
+                    await settings_col.update_one({"_id": "settings"}, {"$set": {"next_serial": ptr + 1}})
+                    continue
+
                 delay = 3600 / s["limit"]
                 for d in s["destinations"]:
                     try:
-                        await app.copy_message(chat_id=d, from_chat_id=task["from_id"], message_id=task["msg_id"])
+                        # বাটনসহ মেসেজ কপি করা
+                        await app.copy_message(
+                            chat_id=d, 
+                            from_chat_id=task["from_id"], 
+                            message_id=task["msg_id"],
+                            reply_markup=original_msg.reply_markup
+                        )
                     except Exception as e:
                         logger.error(f"Forwarding Error: {e}")
                 
                 await queue_col.delete_one({"_id": task["_id"]})
                 await settings_col.update_one({"_id": "settings"}, {"$set": {"next_serial": ptr + 1}})
-                logger.info(f"Serial {ptr} Sent. Waiting {delay}s...")
+                logger.info(f"Serial {ptr} Sent with buttons. Waiting {delay}s...")
                 await asyncio.sleep(delay)
             else:
                 await asyncio.sleep(15) 
@@ -162,13 +176,13 @@ async def worker():
 
 # --- রান বোট ---
 if __name__ == "__main__":
-    # ১. প্রথমে ওয়েব সার্ভারটি থ্রেডে রান করান
+    # ১. ওয়েব সার্ভার স্টার্ট
     server_thread = Thread(target=run_web_server)
     server_thread.daemon = True
     server_thread.start()
     
-    # ২. এরপর বট রান করান
+    # ২. বট এবং ওয়ার্কার স্টার্ট
     loop = asyncio.get_event_loop()
     loop.create_task(worker())
-    print(">>> বট এবং ওয়েব সার্ভার চালু হয়েছে!")
+    print(">>> বট এবং ওয়েব সার্ভার সফলভাবে চালু হয়েছে!")
     app.run()
