@@ -70,20 +70,21 @@ HTML_TEMPLATE = """
         
         .explore-grid { display: grid; grid-template-cols: repeat(2, 1fr); gap: 10px; padding: 20px; padding-top: 80px; padding-bottom: 100px; }
 
-        /* Like Heart Animation on Double Click */
+        /* Like Heart Animation */
         .heart-animation {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 100px;
+            font-size: 80px;
             color: #ff2d55;
             pointer-events: none;
             animation: heartFade 0.8s ease-out forwards;
             z-index: 100;
+            text-shadow: 0 0 20px rgba(0,0,0,0.5);
         }
         @keyframes heartFade {
-            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.3); }
             50% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
             100% { opacity: 0; transform: translate(-50%, -50%) scale(1.5); }
         }
@@ -91,15 +92,12 @@ HTML_TEMPLATE = """
 </head>
 <body>
 
-    <!-- Header (Admin Button Removed as requested) -->
     <nav class="fixed top-0 w-full max-width-[500px] z-50 flex justify-between p-5 bg-gradient-to-b from-black/80 to-transparent">
         <h1 onclick="loadHome()" class="text-2xl font-black italic text-cyan-400 uppercase tracking-tighter cursor-pointer">Cloud<span class="text-white">Tok</span></h1>
     </nav>
 
-    <!-- Video Feed Container -->
     <div id="videoFeed" class="feed-container scrollbar-hide"></div>
 
-    <!-- Bottom Navigation -->
     <div class="bottom-nav">
         <button onclick="loadHome()" class="flex flex-col items-center">
             <span class="text-2xl">🏠</span>
@@ -191,11 +189,11 @@ HTML_TEMPLATE = """
         let observer;
 
         // চেক করা যদি ইউজার /admin লিংকে থাকে
-        window.onload = function() {
-            if(window.location.pathname === '/admin') {
+        window.addEventListener('load', function() {
+            if(window.location.pathname.includes('/admin')) {
                 openAuth();
             }
-        }
+        });
 
         async function refreshData() {
             const res = await fetch('/api/data');
@@ -312,11 +310,9 @@ HTML_TEMPLATE = """
             initObserver();
         }
 
-        // ডাবল ট্যাপ লাইক লজিক
+        // ডাবল ট্যাপ লাইক এনিমেশন এবং লজিক
         function handleDoubleTap(e, id) {
             handleInteraction(id, 'like');
-            
-            // এনিমেশন শো করা
             const heart = document.createElement('div');
             heart.innerHTML = '❤️';
             heart.className = 'heart-animation';
@@ -412,47 +408,15 @@ HTML_TEMPLATE = """
             `).join('');
         }
 
-        function initUpload() {
-            const title = document.getElementById('movieTitle').value;
-            const poster = document.getElementById('moviePoster').value;
-            const ep = document.getElementById('epNo').value;
-            const activeAPI = appState.apis.find(a => a.id === appState.active_id);
-            if(!title || !ep || !activeAPI) return alert("Fill Name, Episode and Select API!");
-
-            cloudinary.createUploadWidget({
-                cloudName: activeAPI.cloud,
-                apiKey: activeAPI.key,
-                uploadSignature: (callback, params) => {
-                    fetch('/api/sign', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ params: params })
-                    })
-                    .then(r => r.json())
-                    .then(data => callback(data.signature));
-                },
-                resourceType: 'video'
-            }, (err, res) => {
-                if (!err && res && res.event === "success") {
-                    fetch('/api/save_video', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ url: res.info.secure_url, series: title, ep: ep, poster: poster })
-                    }).then(() => { refreshData(); alert("Uploaded!"); });
-                }
-            }).open();
-        }
-
         async function handleInteraction(id, type, commentText = "") {
             const res = await fetch('/api/interaction', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ id, type, comment: commentText })
             });
-            const result = await res.json();
             if(type === 'like' && document.getElementById('like-count-'+id)) {
-                let count = parseInt(document.getElementById('like-count-'+id).innerText);
-                document.getElementById('like-count-'+id).innerText = count + 1;
+                let el = document.getElementById('like-count-'+id);
+                el.innerText = parseInt(el.innerText) + 1;
             }
         }
 
@@ -500,8 +464,12 @@ HTML_TEMPLATE = """
 
         async function openAuth() {
             const res = await fetch('/api/auth_check');
-            if((await res.json()).is_auth) document.getElementById('adminPanel').classList.remove('hidden');
-            else document.getElementById('loginModal').classList.remove('hidden');
+            const data = await res.json();
+            if(data.is_auth) {
+                document.getElementById('adminPanel').classList.remove('hidden');
+            } else {
+                document.getElementById('loginModal').classList.remove('hidden');
+            }
             refreshData();
         }
 
@@ -518,8 +486,40 @@ HTML_TEMPLATE = """
 
         function closeModal(id) { 
             document.getElementById(id).classList.add('hidden'); 
-            if(id === 'loginModal' && window.location.pathname === '/admin') window.location.href = '/';
+            if(id === 'loginModal' && window.location.pathname.includes('/admin')) window.location.href = '/';
         }
+
+        function initUpload() {
+            const title = document.getElementById('movieTitle').value;
+            const poster = document.getElementById('moviePoster').value;
+            const ep = document.getElementById('epNo').value;
+            const activeAPI = appState.apis.find(a => a.id === appState.active_id);
+            if(!title || !ep || !activeAPI) return alert("Fill Name, Episode and Select API!");
+
+            cloudinary.createUploadWidget({
+                cloudName: activeAPI.cloud,
+                apiKey: activeAPI.key,
+                uploadSignature: (callback, params) => {
+                    fetch('/api/sign', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ params: params })
+                    })
+                    .then(r => r.json())
+                    .then(data => callback(data.signature));
+                },
+                resourceType: 'video'
+            }, (err, res) => {
+                if (!err && res && res.event === "success") {
+                    fetch('/api/save_video', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ url: res.info.secure_url, series: title, ep: ep, poster: poster })
+                    }).then(() => { refreshData(); alert("Uploaded!"); });
+                }
+            }).open();
+        }
+
         refreshData();
     </script>
 </body>
@@ -532,8 +532,8 @@ HTML_TEMPLATE = """
 def home():
     return render_template_string(HTML_TEMPLATE)
 
-# নতুন এডমিন রাউট
-@app.route('/admin')
+# এই রাউটটি ঠিক করা হয়েছে (strict_slashes=False দিলে /admin এবং /admin/ উভয়ই কাজ করবে)
+@app.route('/admin', strict_slashes=False)
 def admin_page():
     return render_template_string(HTML_TEMPLATE)
 
